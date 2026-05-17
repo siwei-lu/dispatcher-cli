@@ -18,7 +18,14 @@ const VALID_FORMATS: OutputFormat[] = ['text', 'json', 'stream-json']
 
 export async function runExec(args: ExecArgs): Promise<number> {
   const agentName = args.agent ?? defaultAgent()
-  const adapter = resolveAdapter(agentName)
+  let adapter
+  try {
+    adapter = resolveAdapter(agentName)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`dispatch: ${message}\n`)
+    return 2
+  }
 
   const prompt = args.prompt ?? (await readStdin()).trim()
   if (!prompt) {
