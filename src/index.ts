@@ -4,6 +4,7 @@ import cac from 'cac'
 import pkg from '../package.json' with { type: 'json' }
 import { runExec } from './commands/exec.ts'
 import { runHook } from './commands/hook.ts'
+import { runInstall, runUninstall } from './commands/install.ts'
 import { runList } from './commands/list.ts'
 
 interface ExecOpts {
@@ -75,6 +76,44 @@ async function main(): Promise<number> {
     .action(async (name: string) => {
       const exitCode = await runHook(name)
       process.exit(exitCode)
+    })
+
+  cli
+    .command(
+      'install',
+      'Install the dispatch PreToolUse hook into Claude Code settings',
+    )
+    .option('--scope <scope>', 'Target scope: global or project', {
+      default: 'global',
+    })
+    .action(async (opts: { scope: string }) => {
+      const scope = opts.scope
+      if (scope !== 'global' && scope !== 'project') {
+        process.stderr.write(
+          `dispatch: install: unknown scope '${scope}'. Use: global, project\n`,
+        )
+        process.exit(1)
+      }
+      process.exit(await runInstall(scope))
+    })
+
+  cli
+    .command(
+      'uninstall',
+      'Remove the dispatch PreToolUse hook from Claude Code settings',
+    )
+    .option('--scope <scope>', 'Target scope: global or project', {
+      default: 'global',
+    })
+    .action(async (opts: { scope: string }) => {
+      const scope = opts.scope
+      if (scope !== 'global' && scope !== 'project') {
+        process.stderr.write(
+          `dispatch: uninstall: unknown scope '${scope}'. Use: global, project\n`,
+        )
+        process.exit(1)
+      }
+      process.exit(await runUninstall(scope))
     })
 
   cli.help()
