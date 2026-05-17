@@ -13,7 +13,7 @@ export const codexAdapter: Adapter = {
     if (opts.cwd) {
       args.push('-C', opts.cwd)
     }
-    if (opts.output && opts.output !== 'text') {
+    if (opts.output) {
       process.stderr.write(
         `dispatch: --output=${opts.output} is not supported by codex exec; ignoring.\n`,
       )
