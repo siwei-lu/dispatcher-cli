@@ -44,7 +44,8 @@ async function main(): Promise<number> {
       'Output format: text|json|stream-json (claude only)',
     )
     .option('--timeout <ms>', 'Abort backend if it runs longer than this', {
-      type: [Number],
+      // @ts-expect-error cac's .d.ts types `type` as `any[]`, but the runtime accepts a bare constructor for single-value coercion.
+      type: Number,
     })
     .example('dispatch exec -a claude "explain this repo"')
     .example('echo "summarize README" | dispatch exec -a codex')
