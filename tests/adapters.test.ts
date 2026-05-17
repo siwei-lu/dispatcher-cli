@@ -5,7 +5,7 @@ import { codexAdapter } from '../src/adapters/codex.ts'
 import { resolveAdapter } from '../src/adapters/registry.ts'
 
 describe('claude adapter', () => {
-  it('always emits -p --output-format stream-json --verbose with prompt last', () => {
+  it('always emits -p --output-format stream-json --verbose --no-session-persistence with prompt last', () => {
     const built = claudeAdapter.build({
       prompt: 'hello world',
       passthrough: [],
@@ -151,7 +151,7 @@ describe('claude adapter', () => {
 })
 
 describe('codex adapter', () => {
-  it('always emits --json after exec, before --skip-git-repo-check, prompt last', () => {
+  it('always emits exec --json --ephemeral --skip-git-repo-check with prompt last', () => {
     const built = codexAdapter.build({
       prompt: 'hello',
       passthrough: [],
@@ -166,7 +166,7 @@ describe('codex adapter', () => {
     ])
   })
 
-  it('maps --model to -m and --cwd to -C, after --json and --skip-git-repo-check', () => {
+  it('maps --model to -m and --cwd to -C, after --json --ephemeral --skip-git-repo-check', () => {
     const built = codexAdapter.build({
       prompt: 'go',
       model: 'o4',

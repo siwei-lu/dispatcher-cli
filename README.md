@@ -145,6 +145,9 @@ interface Adapter {
 The two built-in adapters live in `src/adapters/`. Adding a new agent is just a
 new file plus a row in `src/adapters/registry.ts`.
 
+Both adapters run fire-and-forget: sessions are never persisted to disk
+(`--ephemeral` for codex, `--no-session-persistence` for claude).
+
 ## Develop
 
 ```bash
