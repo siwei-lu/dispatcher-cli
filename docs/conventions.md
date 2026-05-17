@@ -24,6 +24,10 @@ Format per entry: **decision** → **why** → **how to apply / counter-example*
 - **No emoji in CLI output unless the user explicitly asked for it.** Why: many terminals,
   CI logs, and downstream parsers handle them poorly. How: plain ASCII for `dispatch list`,
   errors, and help text.
+- **An adapter that cannot honor a unified flag must emit a `dispatch: ` stderr notice and
+  continue; never silently drop.** Why: silent drops violate the principle of least surprise
+  — if a user passed a flag, they expect acknowledgement either way. How: see
+  `src/adapters/codex.ts` for the `--output` case (warns for any value, including `text`).
 
 ## Data & State
 

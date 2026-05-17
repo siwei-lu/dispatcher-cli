@@ -71,14 +71,14 @@ CLI flags always win over env vars.
 
 ## Exit codes
 
-| Code | Meaning                                              |
-| ---- | ---------------------------------------------------- |
-| 0    | Backend exited cleanly                               |
-| 1    | dispatcher-cli internal error                        |
-| 2    | Bad arguments (missing prompt, unknown agent, etc.)  |
-| 124  | Backend was killed by `--timeout`                    |
-| 127  | Backend binary not found on PATH                     |
-| \*   | Otherwise mirrors the underlying backend's exit code |
+| Code | Meaning                                                                                     |
+| ---- | ------------------------------------------------------------------------------------------- |
+| 0    | Backend exited cleanly                                                                      |
+| 1    | Unknown top-level command, or dispatcher-cli internal error                                 |
+| 2    | Bad arguments to a known subcommand (missing prompt, unknown agent, invalid --output, etc.) |
+| 124  | Backend was killed by `--timeout`                                                           |
+| 127  | Backend binary not found on PATH                                                            |
+| \*   | Otherwise mirrors the underlying backend's exit code                                        |
 
 ## Adapters
 
