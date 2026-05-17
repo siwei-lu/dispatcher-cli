@@ -10,7 +10,12 @@ export const codexAdapter: Adapter = {
   binary: 'codex',
 
   build(opts: DispatchOptions): BuiltCommand {
-    const args: string[] = ['exec', '--json', '--skip-git-repo-check']
+    const args: string[] = [
+      'exec',
+      '--json',
+      '--ephemeral',
+      '--skip-git-repo-check',
+    ]
 
     if (opts.model) {
       args.push('-m', opts.model)

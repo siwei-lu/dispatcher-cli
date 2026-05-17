@@ -10,7 +10,13 @@ export const claudeAdapter: Adapter = {
   binary: 'claude',
 
   build(opts: DispatchOptions): BuiltCommand {
-    const args: string[] = ['-p', '--output-format', 'stream-json', '--verbose']
+    const args: string[] = [
+      '-p',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--no-session-persistence',
+    ]
 
     if (opts.model) {
       args.push('--model', opts.model)
