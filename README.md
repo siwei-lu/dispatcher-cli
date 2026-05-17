@@ -46,7 +46,6 @@ Common exec options:
   -a, --agent <name>    Agent backend (claude|codex)
   -m, --model <model>   Model identifier passed to the backend
   -C, --cwd <dir>       Working directory for the spawned process
-  -o, --output <fmt>    Output format: text|json|stream-json (claude only)
       --timeout <ms>    Abort backend if it exceeds this duration
   --                    Forward everything after this verbatim to the backend
 ```
@@ -69,6 +68,19 @@ cat README.md | dispatch exec -a codex
 
 CLI flags always win over env vars.
 
+## Output
+
+Both backends run in structured streaming mode. Events are printed as a
+bracketed stream to stdout as they arrive:
+
+```
+[start] claude · claude-opus-4-7
+[task] explain this repo
+[tool] Bash: find . -name "*.ts" | head -20
+[done] This repo is a Bun-based CLI that...
+cost=$0.0031 · 22k tokens · 4.2s
+```
+
 ## Exit codes
 
 | Code | Meaning                                                                                     |
@@ -89,7 +101,8 @@ interface Adapter {
   name: string
   binary: string
   build(opts: DispatchOptions): BuiltCommand
-  supports(option: 'output' | 'model' | 'cwd'): boolean
+  supports(option: 'model' | 'cwd'): boolean
+  parseEvent(event: unknown): DispatcherEvent | null
 }
 ```
 
