@@ -269,6 +269,141 @@ stream-json --verbose` transcript and asserts the resulting
   stream) does not abort; a single stderr warning is emitted and the
   remaining valid lines are still parsed and rendered.
 
+### FM-009: `dispatch install` / `dispatch uninstall` Commands
+
+**Priority:** P1
+**Dependencies:** FM-001, FM-010
+**Description:** Install (and back out) a Claude Code `PreToolUse` hook that
+forces any Bash invocation of `dispatch exec` to run in the background so the
+caller can observe the event stream non-blockingly. Mutates Claude Code's
+`settings.json` idempotently and tags dispatcher-managed entries by their
+command string so uninstall can clean up without touching unrelated hooks.
+
+**Constraints:**
+
+- Usage:
+  - `dispatch install [--scope <global|project>]`
+  - `dispatch uninstall [--scope <global|project>]`
+- `--scope` default is `global`; values:
+  - `global` → mutate `~/.claude/settings.json` (resolved via `$HOME`).
+  - `project` → mutate `./.claude/settings.json` relative to `process.cwd()`.
+    Refuse with a clear error if the cwd is not inside a git repo (we don't
+    want to scribble project-scope settings into random directories).
+- The target file must exist as valid JSON or not exist at all:
+  - If missing, create it with `{ "hooks": { "PreToolUse": [...] } }`.
+  - If present and unparseable, refuse to write (exit 1) and tell the user
+    to fix the JSON manually.
+- The hook entry written has this exact shape, and is matched by exact
+  command-string equality on uninstall:
+  ```json
+  {
+    "matcher": "Bash",
+    "hooks": [{ "type": "command", "command": "dispatch hook bash-pre" }]
+  }
+  ```
+- Idempotency rules:
+  - `install` scans `hooks.PreToolUse[]` for any `matcher: "Bash"` block whose
+    `hooks[]` already contains a `command` equal to `dispatch hook bash-pre`.
+    - If found, print `dispatch: install: already configured at <path>` and
+      exit 0 without writing.
+    - If not found but a `matcher: "Bash"` block exists, append our hook entry
+      into that block's `hooks[]`. Do not touch sibling entries.
+    - Otherwise, append a new `matcher: "Bash"` block to `PreToolUse[]`.
+  - `uninstall` removes only entries whose `command === "dispatch hook bash-pre"`.
+    If a parent `matcher: "Bash"` block becomes empty after removal, drop it.
+    If `PreToolUse[]` becomes empty, drop the key. If `hooks` becomes empty,
+    drop the key. Never delete the settings file itself.
+- Atomic write: serialize the JSON with 2-space indent and a trailing newline,
+  write to a sibling temp file, then `rename` over the original.
+- Print a one-line success message to stdout naming the file written and the
+  action taken (`installed` / `removed` / `already configured` /
+  `nothing to remove`). Exit 0 on success.
+
+**Acceptance Criteria:**
+
+- With no `~/.claude/settings.json`, `dispatch install` creates one containing
+  exactly the `PreToolUse` Bash entry above; running it a second time prints
+  `already configured` and the file is byte-identical to the first run.
+- `dispatch install` followed by `dispatch uninstall` returns
+  `~/.claude/settings.json` to either non-existent (if we created it and it's
+  now empty) or byte-identical to its pre-install content (if it pre-existed
+  with unrelated hooks).
+- `dispatch install --scope project` writes to `./.claude/settings.json` and
+  errors out with a non-zero exit when run outside any git repo.
+- A pre-existing `PreToolUse` `matcher: "Bash"` block with an unrelated
+  `command` (e.g., a user's own linter hook) survives both install and
+  uninstall untouched; only dispatcher's own entry is added or removed.
+- A malformed (non-JSON) settings file causes `install` to exit 1 with a
+  message naming the file and refusing to overwrite it.
+
+### FM-010: `dispatch hook bash-pre` Subcommand
+
+**Priority:** P1
+**Dependencies:** FM-001, FM-008
+**Description:** The hook payload reader invoked by Claude Code when a Bash
+tool call is about to fire. Reads the hook JSON from stdin, decides whether the
+command would launch a streaming `dispatch exec` in the foreground, and (if so)
+emits a `block` decision telling the model to re-issue the call in background
+mode and pair it with the `Monitor` tool keyed on dispatcher's unified `[done]`
+line. All other calls pass through unmodified.
+
+**Constraints:**
+
+- Lives under `dispatch hook <name>`, where `<name>` today is `bash-pre`. The
+  `hook` namespace exists so future hook kinds (e.g., `bash-post`) can slot
+  in without a parallel top-level command.
+- Reads a single JSON object from stdin matching Claude Code's PreToolUse
+  payload (must tolerate fields we don't use). Required fields consumed:
+  - `tool_name: string`
+  - `tool_input: { command?: string, run_in_background?: boolean, ... }`
+- Always emits a single JSON object on stdout and exits 0, even when allowing.
+  Decision shapes:
+  - Allow (default): `{}` (empty object — Claude Code treats this as continue).
+  - Block: `{ "decision": "block", "reason": "<text>" }`.
+- Matcher (when `tool_name === "Bash"`, otherwise allow): block iff **all**
+  of the following hold:
+  1. `tool_input.command` is a string.
+  2. The command contains a streaming dispatch invocation. The detector is a
+     regex tested against `tool_input.command`:
+     `/(^|[\s;&|])(\.\/)?(dist\/)?dispatch\s+exec(\s|$)/` OR
+     `/(^|[\s;&|])bun\s+run\s+(dev|start)\s+exec(\s|$)/`
+     (covers `dispatch exec ...`, `./dispatch exec`, `./dist/dispatch exec`,
+     `bun run dev exec ...`, `bun run start exec ...`).
+  3. The command does NOT contain a help/version flag on the exec invocation:
+     no `(^|\s)(-h|--help|--version)(\s|$)` token anywhere in the command.
+  4. `tool_input.run_in_background !== true`.
+- The block `reason` message is fixed and instructive (must contain the
+  literal substrings, since the model needs them to act):
+  > `dispatch exec streams events to stdout and may run for minutes.`
+  > `Re-issue this Bash call with run_in_background: true, then attach the`
+  > `Monitor tool to its shell_id and stop when a line matching the regex`
+  > `^\[done\] arrives — that is the unified completion signal for both the`
+  > `claude and codex adapters (see src/lib/events.ts).`
+- On unparseable stdin JSON, write `{}` to stdout and exit 0 (fail-open — we
+  must never wedge the user's Bash tool because of a hook bug).
+- Cold-start budget: under 50 ms wall-clock for the allow path. The subcommand
+  must do no filesystem I/O beyond reading stdin and no module loads beyond
+  what `cac` already pulls in.
+
+**Acceptance Criteria:**
+
+- `echo '{"tool_name":"Bash","tool_input":{"command":"dispatch exec -a claude
+hi"}}' | dispatch hook bash-pre` prints a JSON object with
+  `decision === "block"` whose `reason` contains `run_in_background` and
+  `^\[done\]`.
+- Same input but with `"run_in_background": true` added to `tool_input` →
+  output is `{}` (allow).
+- `echo '{"tool_name":"Bash","tool_input":{"command":"dispatch list"}}' |
+dispatch hook bash-pre` → `{}`.
+- `echo '{"tool_name":"Bash","tool_input":{"command":"dispatch exec --help"}}'
+| dispatch hook bash-pre` → `{}` (help invocations are short-lived).
+- `echo '{"tool_name":"Bash","tool_input":{"command":"bun run dev exec hi"}}'
+| dispatch hook bash-pre` → block.
+- `echo '{"tool_name":"Read","tool_input":{}}' | dispatch hook bash-pre` →
+  `{}` (non-Bash tools pass through).
+- `echo 'not json' | dispatch hook bash-pre` → `{}` with exit code 0
+  (fail-open).
+
 ## Non-Functional Requirements
 
 - Cold-start (Bun): under 100 ms for `dispatch --help`.
@@ -291,8 +426,34 @@ stream-json --verbose` transcript and asserts the resulting
 - Streaming the assistant's intermediate text. By design we wait for the
   final `result` / `agent_message` and surface it as a single `[done]`
   event.
+- Hook integration with anything other than Claude Code (`~/.claude` /
+  `./.claude` `settings.json` only). No Cursor, Aider, OpenAI Codex CLI
+  hooks, or shell-level wrappers.
+- Automatic discovery / repair of broken `settings.json` files. `install`
+  refuses to write over unparseable JSON instead of guessing intent.
+- Hook kinds other than `PreToolUse` Bash. FM-010 ships `bash-pre`; future
+  hook kinds get their own PRD round.
 
 ## Changelog
+
+### Round 3 — 2026-05-18
+
+- New FM-009: `dispatch install` / `dispatch uninstall`. Idempotent
+  mutation of `~/.claude/settings.json` (or `./.claude/settings.json` with
+  `--scope project`) to register a PreToolUse Bash hook. Project scope
+  refuses to run outside a git repo. Atomic rename-based writes; never
+  touches unrelated hook entries.
+- New FM-010: `dispatch hook bash-pre` subcommand. Reads Claude Code's
+  PreToolUse JSON payload from stdin and emits `{}` (allow) or
+  `{decision:"block", reason:...}` (block) on stdout. Blocks foreground
+  `dispatch exec` / `bun run dev exec` invocations and instructs the
+  caller to re-issue with `run_in_background: true` paired with the
+  `Monitor` tool watching for the unified `^\[done\] ` line — confirmed
+  via `src/lib/events.ts` to be the single completion signal both
+  adapters normalize into. Help/version invocations and already-
+  backgrounded calls pass through. Fail-open on bad input.
+- Out of Scope additions: non-Claude-Code hook hosts, auto-repair of
+  malformed settings, hook kinds other than `bash-pre`.
 
 ### Round 2 — 2026-05-17
 
