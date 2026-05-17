@@ -3,6 +3,7 @@ import cac from 'cac'
 
 import pkg from '../package.json' with { type: 'json' }
 import { runExec } from './commands/exec.ts'
+import { runHook } from './commands/hook.ts'
 import { runList } from './commands/list.ts'
 
 interface ExecOpts {
@@ -63,6 +64,16 @@ async function main(): Promise<number> {
     .alias('ls')
     .action(async () => {
       const exitCode = await runList()
+      process.exit(exitCode)
+    })
+
+  cli
+    .command(
+      'hook <name>',
+      'Run a dispatch hook handler (for use in Claude Code settings)',
+    )
+    .action(async (name: string) => {
+      const exitCode = await runHook(name)
       process.exit(exitCode)
     })
 
