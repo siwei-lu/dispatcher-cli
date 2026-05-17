@@ -46,11 +46,13 @@ Commands:
   uninstall [--scope global|project]    Remove the hook from Claude Code settings
 
 Common exec options:
-  -a, --agent <name>    Agent backend (claude|codex)
-  -m, --model <model>   Model identifier passed to the backend
-  -C, --cwd <dir>       Working directory for the spawned process
-      --timeout <ms>    Abort backend if it exceeds this duration
-  --                    Forward everything after this verbatim to the backend
+  -a, --agent <name>            Agent backend (claude|codex)
+  -m, --model <model>           Model identifier passed to the backend
+  -C, --cwd <dir>               Working directory for the spawned process
+      --timeout <ms>            Abort backend if it exceeds this duration
+      --log-file <path>         Write rendered output to file; stdout becomes a JSON exit envelope
+      --progress-format <fmt>   Emit raw DispatcherEvents as JSON lines to stderr (only: json)
+  --                            Forward everything after this verbatim to the backend
 ```
 
 The only supported hook name is `bash-pre`: it reads a Claude Code `PreToolUse` JSON payload from
@@ -88,13 +90,40 @@ bracketed stream to stdout as they arrive:
 cost=$0.0031 · 22k tokens · 4.2s
 ```
 
+### Structured output with `--log-file`
+
+Pass `--log-file <path>` to route the bracketed stream to a file and receive a
+compact JSON exit envelope on stdout instead:
+
+```bash
+dispatch exec -a claude "explain this repo" --log-file /tmp/dispatch.log
+# stdout: {"status":"ok","exitCode":0,"summary":"This repo is...","log":"/tmp/dispatch.log"}
+# /tmp/dispatch.log: full [start]/[task]/[tool]/[done] stream
+```
+
+The parent directory must already exist; if it does not, dispatch exits 1
+before spawning the backend. The file is opened in write/truncate mode, so
+each run replaces the previous log.
+
+### Machine-readable events with `--progress-format json`
+
+Pass `--progress-format json` to emit each raw `DispatcherEvent` as a newline-
+delimited JSON record to stderr (before rendering). This is compatible with
+`--log-file`:
+
+```bash
+dispatch exec -a codex "fix the bug" --progress-format json 2>events.ndjson
+```
+
+Only `json` is a valid format value; any other value exits 2.
+
 ## Exit codes
 
 | Code | Meaning                                                                                                                        |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 0    | Backend exited cleanly                                                                                                         |
 | 1    | Unknown top-level command, flag pre-condition failure (e.g. `--log-file` parent dir missing), or dispatcher-cli internal error |
-| 2    | Bad arguments to a known subcommand (missing prompt, unknown agent, bad --scope value, etc.)                                   |
+| 2    | Bad arguments to a known subcommand (missing prompt, unknown agent, bad `--scope` or `--progress-format` value, etc.)          |
 | 124  | Backend was killed by `--timeout`                                                                                              |
 | 127  | Backend binary not found on PATH                                                                                               |
 | \*   | Otherwise mirrors the underlying backend's exit code                                                                           |

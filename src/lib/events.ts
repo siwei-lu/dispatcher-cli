@@ -67,11 +67,6 @@ function renderEvent(
     case 'tool':
       writer(`[tool] ${event.name}: ${truncate(event.brief, 80)}\n`)
       break
-    case 'done':
-      // Caller handles done via pendingDone logic; this branch is unreachable from
-      // renderEventStream, but emitDone is called directly there.
-      emitDone(event, writer)
-      break
     case 'error':
       errWriter(`[error] ${event.message}\n`)
       break

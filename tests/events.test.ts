@@ -260,4 +260,32 @@ describe('renderEventStream — jsonWriter', () => {
     const parsed = JSON.parse(jsonLines[0]!.trim())
     expect(parsed).toHaveProperty('type')
   })
+
+  it('calls jsonWriter for done events before emitting the [done] render line', async () => {
+    const jsonl = JSON.stringify({
+      type: 'result',
+      result: 'finished',
+      total_cost_usd: 0.001,
+      duration_ms: 500,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })
+
+    const jsonLines: string[] = []
+    const renderLines: string[] = []
+    await renderEventStream(makeStream(jsonl), claudeAdapter, {
+      writer: (s) => renderLines.push(s),
+      jsonWriter: (s) => jsonLines.push(s),
+    })
+
+    const doneJson = jsonLines.find((l) => {
+      try {
+        return JSON.parse(l.trim()).type === 'done'
+      } catch {
+        return false
+      }
+    })
+    expect(doneJson).toBeDefined()
+    const doneLine = renderLines.find((l) => l.startsWith('[done]'))
+    expect(doneLine).toBeDefined()
+  })
 })
