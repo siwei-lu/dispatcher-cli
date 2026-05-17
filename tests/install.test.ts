@@ -113,7 +113,7 @@ describe('install / uninstall', () => {
     ).toBe(true)
   })
 
-  it('project install returns 1 outside a git repo', async () => {
+  it('project install returns 2 outside a git repo', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-test-'))
     // No git init — but we need to ensure it's truly not inside any git repo
     // by using a deeply nested temp path that is isolated
@@ -130,7 +130,7 @@ describe('install / uninstall', () => {
     const result = await runInstall('project')
     process.stderr.write = origWrite
 
-    expect(result).toBe(1)
+    expect(result).toBe(2)
     expect(errors.some((e) => e.includes('git repository'))).toBe(true)
   })
 
@@ -220,5 +220,75 @@ describe('install / uninstall', () => {
 
     const result = await runUninstall('global')
     expect(result).toBe(0)
+  })
+
+  it('project uninstall returns 2 outside a git repo', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-test-'))
+    const isolated = mkdtempSync(join(tmpDir, 'isolated-'))
+    process.chdir(isolated)
+
+    const errors: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = (chunk: string | Uint8Array) => {
+      if (typeof chunk === 'string') errors.push(chunk)
+      return true
+    }
+
+    const result = await runUninstall('project')
+    process.stderr.write = origWrite
+
+    expect(result).toBe(2)
+    expect(errors.some((e) => e.includes('git repository'))).toBe(true)
+  })
+
+  it('uninstall with malformed JSON returns 1', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-test-'))
+    process.env['HOME'] = tmpDir
+
+    const settingsPath = join(tmpDir, '.claude', 'settings.json')
+    await mkdir(join(tmpDir, '.claude'), { recursive: true })
+    writeFileSync(settingsPath, 'bad json')
+
+    const result = await runUninstall('global')
+    expect(result).toBe(1)
+  })
+
+  it('sibling byte-identity: install+uninstall leaves sibling entry unchanged', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-test-'))
+    process.env['HOME'] = tmpDir
+
+    const siblingEntry = { type: 'command', command: 'my-other-tool' }
+    const settingsPath = join(tmpDir, '.claude', 'settings.json')
+    await mkdir(join(tmpDir, '.claude'), { recursive: true })
+    writeFileSync(
+      settingsPath,
+      JSON.stringify(
+        {
+          hooks: {
+            PreToolUse: [{ matcher: 'Bash', hooks: [{ ...siblingEntry }] }],
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    )
+
+    const siblingBefore = JSON.stringify(siblingEntry)
+
+    await runInstall('global')
+    await runUninstall('global')
+
+    const afterUninstall = JSON.parse(
+      require('node:fs').readFileSync(settingsPath, 'utf8'),
+    ) as {
+      hooks: {
+        PreToolUse: Array<{ matcher: string; hooks: Array<unknown> }>
+      }
+    }
+    const bashBlock = afterUninstall.hooks.PreToolUse.find(
+      (b) => b.matcher === 'Bash',
+    )
+    expect(bashBlock?.hooks.length).toBe(1)
+    expect(JSON.stringify(bashBlock?.hooks[0])).toBe(siblingBefore)
   })
 })

@@ -74,7 +74,7 @@ export async function runInstall(scope: 'global' | 'project'): Promise<number> {
     process.stderr.write(
       'dispatch: install: --scope project requires a git repository\n',
     )
-    return 1
+    return 2
   }
 
   let settings: SettingsJson
@@ -125,7 +125,7 @@ export async function runUninstall(
     process.stderr.write(
       'dispatch: uninstall: --scope project requires a git repository\n',
     )
-    return 1
+    return 2
   }
 
   let settings: SettingsJson | null

@@ -39,8 +39,11 @@ bun run build:bin   # → dist/dispatch
 Usage: dispatch <command> [options]
 
 Commands:
-  exec [...prompt]  Run a non-interactive prompt against an AI coding agent
-  list              Show available agent backends and their status
+  exec [...prompt]                      Run a non-interactive prompt against an AI coding agent
+  list                                  Show available agent backends and their status
+  hook <name>                           Run a dispatch hook handler (for use in Claude Code settings)
+  install [--scope global|project]      Register the PreToolUse Bash hook in Claude Code settings
+  uninstall [--scope global|project]    Remove the hook from Claude Code settings
 
 Common exec options:
   -a, --agent <name>    Agent backend (claude|codex)
@@ -49,6 +52,10 @@ Common exec options:
       --timeout <ms>    Abort backend if it exceeds this duration
   --                    Forward everything after this verbatim to the backend
 ```
+
+The only supported hook name is `bash-pre`: it reads a Claude Code `PreToolUse` JSON payload from
+stdin and emits an allow (`{}`) or block decision. `install` and `uninstall` default to `--scope
+global`; pass `--scope project` to target `.claude/settings.json` in the current git repo.
 
 ### Prompt input
 

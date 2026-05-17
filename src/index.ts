@@ -92,7 +92,7 @@ async function main(): Promise<number> {
         process.stderr.write(
           `dispatch: install: unknown scope '${scope}'. Use: global, project\n`,
         )
-        process.exit(1)
+        process.exit(2)
       }
       process.exit(await runInstall(scope))
     })
@@ -111,7 +111,7 @@ async function main(): Promise<number> {
         process.stderr.write(
           `dispatch: uninstall: unknown scope '${scope}'. Use: global, project\n`,
         )
-        process.exit(1)
+        process.exit(2)
       }
       process.exit(await runUninstall(scope))
     })

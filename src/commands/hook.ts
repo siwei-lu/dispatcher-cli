@@ -51,5 +51,5 @@ export async function runHook(name: string): Promise<number> {
   process.stderr.write(
     `dispatch: unknown hook '${name}'. Known hooks: bash-pre\n`,
   )
-  return 1
+  return 2
 }

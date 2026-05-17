@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 
-import { bashPreHandler } from '../src/commands/hook.ts'
+import { bashPreHandler, runHook } from '../src/commands/hook.ts'
 
 function makeInput(
   command: string,
@@ -69,5 +69,32 @@ describe('bashPreHandler', () => {
     const out = bashPreHandler(makeInput('./dist/dispatch exec foo'))
     const parsed = JSON.parse(out) as { decision: string }
     expect(parsed.decision).toBe('block')
+  })
+
+  it('passes through when tool_input is present but command field is missing', () => {
+    const out = bashPreHandler(
+      JSON.stringify({
+        tool_name: 'Bash',
+        tool_input: { run_in_background: false },
+      }),
+    )
+    expect(out).toBe('{}')
+  })
+})
+
+describe('runHook', () => {
+  it('returns 2 for an unknown hook name', async () => {
+    const errors: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = (chunk: string | Uint8Array) => {
+      if (typeof chunk === 'string') errors.push(chunk)
+      return true
+    }
+
+    const result = await runHook('unknown-name')
+    process.stderr.write = origWrite
+
+    expect(result).toBe(2)
+    expect(errors.some((e) => e.includes('unknown hook'))).toBe(true)
   })
 })
