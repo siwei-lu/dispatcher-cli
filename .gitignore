@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+
+# Orchestrator runtime state (config + hooks are committed; tasks + reports are not)
+.orchestrator/tasks.json
+.orchestrator/reports/
+.orchestrator/.build-smoke/
