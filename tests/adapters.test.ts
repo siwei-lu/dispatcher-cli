@@ -16,6 +16,7 @@ describe('claude adapter', () => {
       '--output-format',
       'stream-json',
       '--verbose',
+      '--no-session-persistence',
       'hello world',
     ])
   })
@@ -31,6 +32,7 @@ describe('claude adapter', () => {
       '--output-format',
       'stream-json',
       '--verbose',
+      '--no-session-persistence',
       '--model',
       'sonnet',
       'go',
@@ -47,6 +49,7 @@ describe('claude adapter', () => {
       '--output-format',
       'stream-json',
       '--verbose',
+      '--no-session-persistence',
       '--verbose',
       '--debug',
       'go',
@@ -157,6 +160,7 @@ describe('codex adapter', () => {
     expect(built.args).toEqual([
       'exec',
       '--json',
+      '--ephemeral',
       '--skip-git-repo-check',
       'hello',
     ])
@@ -172,6 +176,7 @@ describe('codex adapter', () => {
     expect(built.args).toEqual([
       'exec',
       '--json',
+      '--ephemeral',
       '--skip-git-repo-check',
       '-m',
       'o4',
@@ -182,7 +187,7 @@ describe('codex adapter', () => {
     expect(built.cwd).toBe('/tmp/x')
   })
 
-  it('inserts passthrough args before the prompt', () => {
+  it('inserts passthrough args before the prompt (duplicates accepted)', () => {
     const built = codexAdapter.build({
       prompt: 'go',
       passthrough: ['--ephemeral'],
@@ -190,6 +195,7 @@ describe('codex adapter', () => {
     expect(built.args).toEqual([
       'exec',
       '--json',
+      '--ephemeral',
       '--skip-git-repo-check',
       '--ephemeral',
       'go',
