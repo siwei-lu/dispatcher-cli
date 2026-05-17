@@ -5,6 +5,7 @@ type Writer = (s: string) => void
 interface RenderOpts {
   writer?: Writer
   errWriter?: Writer
+  jsonWriter?: Writer
 }
 
 function truncate(s: string, max: number): string {
@@ -66,11 +67,6 @@ function renderEvent(
     case 'tool':
       writer(`[tool] ${event.name}: ${truncate(event.brief, 80)}\n`)
       break
-    case 'done':
-      // Caller handles done via pendingDone logic; this branch is unreachable from
-      // renderEventStream, but emitDone is called directly there.
-      emitDone(event, writer)
-      break
     case 'error':
       errWriter(`[error] ${event.message}\n`)
       break
@@ -82,7 +78,7 @@ function renderEvent(
   }
 }
 
-type PendingDone = {
+export type PendingDone = {
   result: string
   costUsd?: number
   durationMs?: number
@@ -93,7 +89,7 @@ export async function renderEventStream(
   stdout: ReadableStream<Uint8Array>,
   adapter: Adapter,
   opts?: RenderOpts,
-): Promise<void> {
+): Promise<PendingDone | null> {
   const writer: Writer =
     opts?.writer ?? process.stdout.write.bind(process.stdout)
   const errWriter: Writer =
@@ -102,6 +98,7 @@ export async function renderEventStream(
   const decoder = new TextDecoder('utf-8')
   let leftover = ''
   let pendingDone: PendingDone | null = null
+  let lastEmitted: PendingDone | null = null
 
   function processLine(line: string): void {
     const trimmed = line.trim()
@@ -117,6 +114,7 @@ export async function renderEventStream(
 
     const event = adapter.parseEvent(parsed)
     if (event === null) return
+    if (opts?.jsonWriter) opts.jsonWriter(JSON.stringify(event) + '\n')
 
     if (event.type === 'done') {
       if (pendingDone === null) {
@@ -142,6 +140,7 @@ export async function renderEventStream(
               : (pendingDone.tokens ?? event.tokens),
         }
         emitDone(merged, writer)
+        lastEmitted = merged
         pendingDone = null
       }
     } else {
@@ -175,8 +174,11 @@ export async function renderEventStream(
   // Flush any buffered pendingDone (e.g. claude emits a single done event).
   if (pendingDone !== null) {
     emitDone(pendingDone, writer)
+    lastEmitted = pendingDone
     pendingDone = null
   }
+
+  return lastEmitted
 }
 
 export function emitTaskEvent(prompt: string, writer?: Writer): void {

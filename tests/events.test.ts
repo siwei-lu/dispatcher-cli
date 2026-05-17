@@ -212,3 +212,81 @@ describe('renderEventStream — truncation', () => {
     expect(doneLine).toContain(longResult)
   })
 })
+
+describe('renderEventStream — return value', () => {
+  it('returns PendingDone when a done event is present', async () => {
+    const jsonl = JSON.stringify({
+      type: 'result',
+      result: 'all done',
+      total_cost_usd: 0.001,
+      duration_ms: 500,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })
+    const result = await renderEventStream(makeStream(jsonl), claudeAdapter, {
+      writer: () => {},
+    })
+    expect(result).not.toBeNull()
+    expect(result?.result).toBe('all done')
+  })
+
+  it('returns null when stream has no done event', async () => {
+    const jsonl = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      model: 'claude-opus-4-7',
+    })
+    const result = await renderEventStream(makeStream(jsonl), claudeAdapter, {
+      writer: () => {},
+    })
+    expect(result).toBeNull()
+  })
+})
+
+describe('renderEventStream — jsonWriter', () => {
+  it('calls jsonWriter with a JSON line for each parsed event', async () => {
+    const jsonl = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      model: 'claude-opus-4-7',
+    })
+
+    const jsonLines: string[] = []
+    await renderEventStream(makeStream(jsonl), claudeAdapter, {
+      writer: () => {},
+      jsonWriter: (s) => jsonLines.push(s),
+    })
+
+    expect(jsonLines.length).toBeGreaterThan(0)
+    const parsed = JSON.parse(jsonLines[0]!.trim())
+    expect(parsed).toHaveProperty('type')
+  })
+
+  it('calls jsonWriter for done events before emitting the [done] render line', async () => {
+    const jsonl = JSON.stringify({
+      type: 'result',
+      result: 'finished',
+      total_cost_usd: 0.001,
+      duration_ms: 500,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })
+
+    const log: string[] = []
+    await renderEventStream(makeStream(jsonl), claudeAdapter, {
+      writer: (s) => log.push('render:' + s.trimEnd()),
+      jsonWriter: (s) => {
+        try {
+          const ev = JSON.parse(s.trim())
+          log.push('json:' + ev.type)
+        } catch {
+          log.push('json:?')
+        }
+      },
+    })
+
+    const jsonDoneIdx = log.indexOf('json:done')
+    const renderDoneIdx = log.findIndex((e) => e.startsWith('render:[done]'))
+    expect(jsonDoneIdx).toBeGreaterThanOrEqual(0)
+    expect(renderDoneIdx).toBeGreaterThanOrEqual(0)
+    expect(jsonDoneIdx).toBeLessThan(renderDoneIdx)
+  })
+})
