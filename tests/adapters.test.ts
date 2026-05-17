@@ -148,16 +148,21 @@ describe('claude adapter', () => {
 })
 
 describe('codex adapter', () => {
-  it('uses `exec --skip-git-repo-check` and appends the prompt last', () => {
+  it('always emits --json after exec, before --skip-git-repo-check, prompt last', () => {
     const built = codexAdapter.build({
       prompt: 'hello',
       passthrough: [],
     })
     expect(built.command).toBe('codex')
-    expect(built.args).toEqual(['exec', '--skip-git-repo-check', 'hello'])
+    expect(built.args).toEqual([
+      'exec',
+      '--json',
+      '--skip-git-repo-check',
+      'hello',
+    ])
   })
 
-  it('maps --model to -m and --cwd to -C', () => {
+  it('maps --model to -m and --cwd to -C, after --json and --skip-git-repo-check', () => {
     const built = codexAdapter.build({
       prompt: 'go',
       model: 'o4',
@@ -166,6 +171,7 @@ describe('codex adapter', () => {
     })
     expect(built.args).toEqual([
       'exec',
+      '--json',
       '--skip-git-repo-check',
       '-m',
       'o4',
@@ -183,6 +189,7 @@ describe('codex adapter', () => {
     })
     expect(built.args).toEqual([
       'exec',
+      '--json',
       '--skip-git-repo-check',
       '--ephemeral',
       'go',
@@ -192,6 +199,119 @@ describe('codex adapter', () => {
   it('supports model and cwd options', () => {
     expect(codexAdapter.supports('model')).toBe(true)
     expect(codexAdapter.supports('cwd')).toBe(true)
+  })
+
+  describe('parseEvent', () => {
+    it('maps thread.started to a start event with empty model', () => {
+      expect(
+        codexAdapter.parseEvent({
+          type: 'thread.started',
+          thread_id: '019e3680-bbd0-78d0-a10b-f8b3bc8c55a1',
+        }),
+      ).toEqual({ type: 'start', agent: 'codex', model: '' })
+    })
+
+    it('drops turn.started (returns null)', () => {
+      expect(codexAdapter.parseEvent({ type: 'turn.started' })).toBeNull()
+    })
+
+    it('maps item.completed with agent_message to a done event with result text', () => {
+      // Real probe shape: {"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"2"}}
+      expect(
+        codexAdapter.parseEvent({
+          type: 'item.completed',
+          item: { id: 'item_0', type: 'agent_message', text: '2' },
+        }),
+      ).toEqual({
+        type: 'done',
+        result: '2',
+        costUsd: undefined,
+        durationMs: undefined,
+        tokens: undefined,
+      })
+    })
+
+    it('maps turn.completed with usage to a done event with tokens (input+output only)', () => {
+      // Real probe shape: {"type":"turn.completed","usage":{"input_tokens":22386,"cached_input_tokens":9600,"output_tokens":18,"reasoning_output_tokens":16}}
+      // Only input_tokens + output_tokens are summed; cached and reasoning are ignored.
+      expect(
+        codexAdapter.parseEvent({
+          type: 'turn.completed',
+          usage: {
+            input_tokens: 22386,
+            cached_input_tokens: 9600,
+            output_tokens: 18,
+            reasoning_output_tokens: 16,
+          },
+        }),
+      ).toEqual({
+        type: 'done',
+        result: '',
+        costUsd: undefined,
+        durationMs: undefined,
+        tokens: 22404,
+      })
+    })
+
+    it('maps item.started with command_execution to a tool event', () => {
+      // Real probe shape: {"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc 'ls -la /tmp'",...}}
+      // command_execution items are handled at item.started (tool firing); item.completed is dropped.
+      const ev = codexAdapter.parseEvent({
+        type: 'item.started',
+        item: {
+          id: 'item_0',
+          type: 'command_execution',
+          command: "/bin/zsh -lc 'ls -la /tmp'",
+          aggregated_output: '',
+          exit_code: null,
+          status: 'in_progress',
+        },
+      })
+      expect(ev).toEqual({
+        type: 'tool',
+        name: 'shell',
+        brief: "/bin/zsh -lc 'ls -la /tmp'",
+      })
+    })
+
+    it('truncates tool brief longer than 80 chars', () => {
+      const longCmd = 'a'.repeat(90)
+      const ev = codexAdapter.parseEvent({
+        type: 'item.started',
+        item: {
+          id: 'item_0',
+          type: 'command_execution',
+          command: longCmd,
+          aggregated_output: '',
+          exit_code: null,
+          status: 'in_progress',
+        },
+      })
+      expect(ev).not.toBeNull()
+      expect((ev as { brief: string }).brief.length).toBeLessThanOrEqual(80)
+    })
+
+    it('drops item.completed for command_execution (avoid double-emit)', () => {
+      expect(
+        codexAdapter.parseEvent({
+          type: 'item.completed',
+          item: {
+            id: 'item_0',
+            type: 'command_execution',
+            command: "/bin/zsh -lc 'ls'",
+            aggregated_output: 'file1\nfile2\n',
+            exit_code: 0,
+            status: 'completed',
+          },
+        }),
+      ).toBeNull()
+    })
+
+    it('returns null for unknown event types', () => {
+      expect(
+        codexAdapter.parseEvent({ type: 'unknown_future_event' }),
+      ).toBeNull()
+    })
   })
 })
 
