@@ -39,17 +39,6 @@
           }
         ]
       }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .orchestrator/hooks/notify.cjs",
-            "async": true
-          }
-        ]
-      }
     ]
   }
 }

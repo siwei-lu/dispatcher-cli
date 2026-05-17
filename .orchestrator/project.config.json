@@ -151,9 +151,5 @@
     "notes": "Simple state machine has no separate acceptance state. CLI smoke checks (e.g. `dispatch --help`, `dispatch list`, `dispatch exec -a <agent> 'hi'` with mocked or short prompt) run as part of `verifying`. Enricher still generates acceptance_steps so they are documented per task."
   },
   "max_retries": 3,
-  "max_housekeeper_cycles": 3,
-  "notifications": {
-    "slack_webhook": null,
-    "desktop": "auto (macOS osascript / Linux notify-send)"
-  }
+  "max_housekeeper_cycles": 3
 }
