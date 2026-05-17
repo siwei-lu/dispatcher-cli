@@ -270,22 +270,23 @@ describe('renderEventStream — jsonWriter', () => {
       usage: { input_tokens: 10, output_tokens: 5 },
     })
 
-    const jsonLines: string[] = []
-    const renderLines: string[] = []
+    const log: string[] = []
     await renderEventStream(makeStream(jsonl), claudeAdapter, {
-      writer: (s) => renderLines.push(s),
-      jsonWriter: (s) => jsonLines.push(s),
+      writer: (s) => log.push('render:' + s.trimEnd()),
+      jsonWriter: (s) => {
+        try {
+          const ev = JSON.parse(s.trim())
+          log.push('json:' + ev.type)
+        } catch {
+          log.push('json:?')
+        }
+      },
     })
 
-    const doneJson = jsonLines.find((l) => {
-      try {
-        return JSON.parse(l.trim()).type === 'done'
-      } catch {
-        return false
-      }
-    })
-    expect(doneJson).toBeDefined()
-    const doneLine = renderLines.find((l) => l.startsWith('[done]'))
-    expect(doneLine).toBeDefined()
+    const jsonDoneIdx = log.indexOf('json:done')
+    const renderDoneIdx = log.findIndex((e) => e.startsWith('render:[done]'))
+    expect(jsonDoneIdx).toBeGreaterThanOrEqual(0)
+    expect(renderDoneIdx).toBeGreaterThanOrEqual(0)
+    expect(jsonDoneIdx).toBeLessThan(renderDoneIdx)
   })
 })

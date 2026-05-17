@@ -98,7 +98,7 @@ compact JSON exit envelope on stdout instead:
 ```bash
 dispatch exec -a claude "explain this repo" --log-file /tmp/dispatch.log
 # stdout: {"status":"ok","exitCode":0,"summary":"This repo is...","log":"/tmp/dispatch.log"}
-# /tmp/dispatch.log: full [start]/[task]/[tool]/[done] stream
+# /tmp/dispatch.log: full [task]/[start]/[tool]/[done] stream
 ```
 
 The parent directory must already exist; if it does not, dispatch exits 1
