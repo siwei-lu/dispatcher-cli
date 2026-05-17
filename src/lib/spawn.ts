@@ -7,6 +7,7 @@ export interface RunResult {
 
 export interface RunOptions {
   timeoutMs?: number
+  onStdout?: (stream: ReadableStream<Uint8Array>) => Promise<void>
 }
 
 export async function runStreaming(
@@ -25,7 +26,7 @@ export async function runStreaming(
   const proc = Bun.spawn([resolved, ...built.args], {
     cwd: built.cwd ?? process.cwd(),
     stdin: 'inherit',
-    stdout: 'inherit',
+    stdout: 'pipe',
     stderr: 'inherit',
     env: process.env,
   })
@@ -44,7 +45,13 @@ export async function runStreaming(
   forwardSignal(proc, 'SIGINT')
   forwardSignal(proc, 'SIGTERM')
 
-  const exitCode = await proc.exited
+  const stdoutPromise = opts.onStdout
+    ? opts.onStdout(proc.stdout!).catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`dispatch: event stream error: ${msg}\n`)
+      })
+    : Promise.resolve()
+  const [exitCode] = await Promise.all([proc.exited, stdoutPromise])
   if (timer) clearTimeout(timer)
 
   return { exitCode: timedOut ? 124 : exitCode, timedOut }
