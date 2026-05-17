@@ -18,7 +18,6 @@ describe('bashPreHandler', () => {
     const parsed = JSON.parse(out) as { decision: string; reason: string }
     expect(parsed.decision).toBe('block')
     expect(parsed.reason).toContain('run_in_background')
-    expect(parsed.reason).toContain('^\\[done\\]')
   })
 
   it('passes through when run_in_background is true', () => {

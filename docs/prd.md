@@ -341,11 +341,12 @@ command string so uninstall can clean up without touching unrelated hooks.
 **Priority:** P1
 **Dependencies:** FM-001, FM-008
 **Description:** The hook payload reader invoked by Claude Code when a Bash
-tool call is about to fire. Reads the hook JSON from stdin, decides whether the
-command would launch a streaming `dispatch exec` in the foreground, and (if so)
-emits a `block` decision telling the model to re-issue the call in background
-mode and pair it with the `Monitor` tool keyed on dispatcher's unified `[done]`
-line. All other calls pass through unmodified.
+tool call is about to fire. Reads the hook JSON from stdin, detects whether the
+command would launch a `dispatch exec` in the foreground, and (if so) emits a
+`block` decision instructing the model to re-issue with `run_in_background: true`.
+All other calls pass through unmodified. The hook does not require Monitor to be
+attached — how (or whether) the caller observes the background process output is
+left to the caller.
 
 **Constraints:**
 
@@ -373,12 +374,9 @@ line. All other calls pass through unmodified.
      no `(^|\s)(-h|--help|--version)(\s|$)` token anywhere in the command.
   4. `tool_input.run_in_background !== true`.
 - The block `reason` message is fixed and instructive (must contain the
-  literal substrings, since the model needs them to act):
-  > `dispatch exec streams events to stdout and may run for minutes.`
-  > `Re-issue this Bash call with run_in_background: true, then attach the`
-  > `Monitor tool to its shell_id and stop when a line matching the regex`
-  > `^\[done\] arrives — that is the unified completion signal for both the`
-  > `claude and codex adapters (see src/lib/events.ts).`
+  literal substring, since the model needs it to act):
+  > `dispatch exec may run for minutes. Re-issue this Bash call with`
+  > `run_in_background: true.`
 - On unparseable stdin JSON, write `{}` to stdout and exit 0 (fail-open — we
   must never wedge the user's Bash tool because of a hook bug).
 - Cold-start budget: under 50 ms wall-clock for the allow path. The subcommand
@@ -387,22 +385,13 @@ line. All other calls pass through unmodified.
 
 **Acceptance Criteria:**
 
-- `echo '{"tool_name":"Bash","tool_input":{"command":"dispatch exec -a claude
-hi"}}' | dispatch hook bash-pre` prints a JSON object with
-  `decision === "block"` whose `reason` contains `run_in_background` and
-  `^\[done\]`.
-- Same input but with `"run_in_background": true` added to `tool_input` →
-  output is `{}` (allow).
-- `echo '{"tool_name":"Bash","tool_input":{"command":"dispatch list"}}' |
-dispatch hook bash-pre` → `{}`.
-- `echo '{"tool_name":"Bash","tool_input":{"command":"dispatch exec --help"}}'
-| dispatch hook bash-pre` → `{}` (help invocations are short-lived).
-- `echo '{"tool_name":"Bash","tool_input":{"command":"bun run dev exec hi"}}'
-| dispatch hook bash-pre` → block.
-- `echo '{"tool_name":"Read","tool_input":{}}' | dispatch hook bash-pre` →
-  `{}` (non-Bash tools pass through).
-- `echo 'not json' | dispatch hook bash-pre` → `{}` with exit code 0
-  (fail-open).
+- `echo '{"tool_name":"Bash","tool_input":{"command":"dispatch exec -a claude hi"}}' | dispatch hook bash-pre` prints a JSON object with `decision === "block"` whose `reason` contains `run_in_background`.
+- Same input but with `"run_in_background": true` added to `tool_input` → output is `{}` (allow).
+- `echo '{"tool_name":"Bash","tool_input":{"command":"dispatch list"}}' | dispatch hook bash-pre` → `{}`.
+- `echo '{"tool_name":"Bash","tool_input":{"command":"dispatch exec --help"}}' | dispatch hook bash-pre` → `{}` (help invocations are short-lived).
+- `echo '{"tool_name":"Bash","tool_input":{"command":"bun run dev exec hi"}}' | dispatch hook bash-pre` → block.
+- `echo '{"tool_name":"Read","tool_input":{}}' | dispatch hook bash-pre` → `{}` (non-Bash tools pass through).
+- `echo 'not json' | dispatch hook bash-pre` → `{}` with exit code 0 (fail-open).
 
 ## Non-Functional Requirements
 
@@ -436,6 +425,20 @@ dispatch hook bash-pre` → `{}`.
 
 ## Changelog
 
+### Round 6 — 2026-05-18
+
+- FM-010 updated: removed the `Monitor` requirement from the `bash-pre` block
+  reason. The hook still detects foreground `dispatch exec` calls and blocks
+  them with a `run_in_background: true` instruction, but no longer prescribes
+  attaching the Monitor tool. How (or whether) the caller observes the background
+  process output is left to the caller.
+
+### Round 5 — 2026-05-18
+
+- New FM-012: Ephemeral sessions. Both adapters unconditionally pass their
+  backend's no-persistence flag (`--ephemeral` for codex, `--no-session-persistence`
+  for claude). No new dispatch CLI surface. Pure adapter-internal change.
+
 ### Round 3 — 2026-05-18
 
 - New FM-009: `dispatch install` / `dispatch uninstall`. Idempotent
@@ -443,15 +446,10 @@ dispatch hook bash-pre` → `{}`.
   `--scope project`) to register a PreToolUse Bash hook. Project scope
   refuses to run outside a git repo. Atomic rename-based writes; never
   touches unrelated hook entries.
-- New FM-010: `dispatch hook bash-pre` subcommand. Reads Claude Code's
-  PreToolUse JSON payload from stdin and emits `{}` (allow) or
-  `{decision:"block", reason:...}` (block) on stdout. Blocks foreground
-  `dispatch exec` / `bun run dev exec` invocations and instructs the
-  caller to re-issue with `run_in_background: true` paired with the
-  `Monitor` tool watching for the unified `^\[done\] ` line — confirmed
-  via `src/lib/events.ts` to be the single completion signal both
-  adapters normalize into. Help/version invocations and already-
-  backgrounded calls pass through. Fail-open on bad input.
+- New FM-010: `dispatch hook bash-pre` subcommand. Blocks foreground
+  `dispatch exec` invocations and instructs the caller to re-issue with
+  `run_in_background: true`. Originally also prescribed Monitor for the
+  `^\[done\]` line; Monitor requirement removed in Round 6.
 - Out of Scope additions: non-Claude-Code hook hosts, auto-repair of
   malformed settings, hook kinds other than `bash-pre`.
 
