@@ -1,6 +1,10 @@
+import { existsSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+
 import { resolveAdapter } from '../adapters/registry.ts'
 import { defaultAgent, defaultModel } from '../lib/config.ts'
 import { emitTaskEvent, renderEventStream } from '../lib/events.ts'
+import type { PendingDone } from '../lib/events.ts'
 import { runStreaming } from '../lib/spawn.ts'
 import { readStdin } from '../lib/stdin.ts'
 
@@ -11,9 +15,32 @@ export interface ExecArgs {
   cwd?: string
   timeout?: number
   passthrough: string[]
+  logFile?: string
+  progressFormat?: string
 }
 
 export async function runExec(args: ExecArgs): Promise<number> {
+  // Log-file parent-dir check FIRST — must precede resolveAdapter
+  const resolvedLogFile =
+    args.logFile !== undefined ? resolve(args.logFile) : undefined
+  if (resolvedLogFile !== undefined) {
+    const parentDir = dirname(resolvedLogFile)
+    if (!existsSync(parentDir)) {
+      process.stderr.write(
+        `dispatch: --log-file: parent directory does not exist: ${parentDir}\n`,
+      )
+      return 1
+    }
+  }
+
+  // progress-format validation
+  if (args.progressFormat !== undefined && args.progressFormat !== 'json') {
+    process.stderr.write(
+      `dispatch: --progress-format: unknown format '${args.progressFormat}'. Only 'json' is supported.\n`,
+    )
+    return 2
+  }
+
   const agentName = args.agent ?? defaultAgent()
   let adapter
   try {
@@ -32,7 +59,14 @@ export async function runExec(args: ExecArgs): Promise<number> {
     return 2
   }
 
-  emitTaskEvent(prompt)
+  let logSink: ReturnType<ReturnType<typeof Bun.file>['writer']> | undefined
+  let logWriter: ((s: string) => void) | undefined
+  if (resolvedLogFile !== undefined) {
+    logSink = Bun.file(resolvedLogFile).writer()
+    logWriter = (s: string) => logSink!.write(s)
+  }
+
+  emitTaskEvent(prompt, logWriter)
 
   const built = adapter.build({
     prompt,
@@ -41,9 +75,37 @@ export async function runExec(args: ExecArgs): Promise<number> {
     passthrough: args.passthrough,
   })
 
+  const jsonWriter =
+    args.progressFormat === 'json'
+      ? (s: string) => process.stderr.write(s)
+      : undefined
+
+  let capturedDone = null as PendingDone | null
   const { exitCode } = await runStreaming(built, {
     timeoutMs: args.timeout,
-    onStdout: (stream) => renderEventStream(stream, adapter),
+    onStdout: async (stream) => {
+      capturedDone = await renderEventStream(stream, adapter, {
+        writer: logWriter,
+        jsonWriter,
+      })
+    },
   })
+
+  if (logSink !== undefined) {
+    await logSink.flush()
+    logSink.end()
+  }
+
+  if (resolvedLogFile !== undefined) {
+    process.stdout.write(
+      JSON.stringify({
+        status: exitCode === 0 ? 'ok' : 'error',
+        exitCode,
+        summary: capturedDone?.result ?? '',
+        log: resolvedLogFile,
+      }) + '\n',
+    )
+  }
+
   return exitCode
 }

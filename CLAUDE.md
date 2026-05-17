@@ -20,8 +20,8 @@ bun run typecheck                              # tsc --noEmit
 bun test                                       # run the suite
 bunx prettier --check .                        # format gate
 bunx prettier --write <file>                   # apply formatting (also runs via post-edit hook)
-bun run dev exec -a claude "hello"             # local CLI dev run
 bun run build:bin                              # standalone binary → dist/dispatch
+dist/dispatch exec -a claude "hello"          # run via compiled binary (always prefer this over bun run dev)
 ```
 
 ## Branch + commit conventions

@@ -12,6 +12,8 @@ interface ExecOpts {
   model?: string
   cwd?: string
   timeout?: number
+  logFile?: string
+  progressFormat?: string
 }
 
 function splitPassthrough(argv: string[]): {
@@ -44,6 +46,14 @@ async function main(): Promise<number> {
       // @ts-expect-error cac's .d.ts types `type` as `any[]`, but the runtime accepts a bare constructor for single-value coercion.
       type: Number,
     })
+    .option(
+      '--log-file <path>',
+      'Write rendered output to file; stdout becomes a JSON exit envelope',
+    )
+    .option(
+      '--progress-format <format>',
+      'Emit raw DispatcherEvents as JSON lines to stderr (only: json)',
+    )
     .example('dispatch exec -a claude "explain this repo"')
     .example('echo "summarize README" | dispatch exec -a codex')
     .example('dispatch exec -a claude -- --verbose "debug me"')
@@ -56,6 +66,8 @@ async function main(): Promise<number> {
         cwd: opts.cwd,
         timeout: opts.timeout,
         passthrough,
+        logFile: opts.logFile,
+        progressFormat: opts.progressFormat,
       })
       process.exit(exitCode)
     })

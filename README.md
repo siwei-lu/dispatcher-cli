@@ -90,14 +90,14 @@ cost=$0.0031 · 22k tokens · 4.2s
 
 ## Exit codes
 
-| Code | Meaning                                                                                      |
-| ---- | -------------------------------------------------------------------------------------------- |
-| 0    | Backend exited cleanly                                                                       |
-| 1    | Unknown top-level command, or dispatcher-cli internal error                                  |
-| 2    | Bad arguments to a known subcommand (missing prompt, unknown agent, bad --scope value, etc.) |
-| 124  | Backend was killed by `--timeout`                                                            |
-| 127  | Backend binary not found on PATH                                                             |
-| \*   | Otherwise mirrors the underlying backend's exit code                                         |
+| Code | Meaning                                                                                                                        |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 0    | Backend exited cleanly                                                                                                         |
+| 1    | Unknown top-level command, flag pre-condition failure (e.g. `--log-file` parent dir missing), or dispatcher-cli internal error |
+| 2    | Bad arguments to a known subcommand (missing prompt, unknown agent, bad --scope value, etc.)                                   |
+| 124  | Backend was killed by `--timeout`                                                                                              |
+| 127  | Backend binary not found on PATH                                                                                               |
+| \*   | Otherwise mirrors the underlying backend's exit code                                                                           |
 
 ## Adapters
 
