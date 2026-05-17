@@ -9,7 +9,6 @@ interface ExecOpts {
   agent?: string
   model?: string
   cwd?: string
-  output?: string
   timeout?: number
 }
 
@@ -39,10 +38,6 @@ async function main(): Promise<number> {
     .option('-a, --agent <name>', 'Agent backend (claude|codex)')
     .option('-m, --model <model>', 'Model identifier passed to the backend')
     .option('-C, --cwd <dir>', 'Working directory for the spawned process')
-    .option(
-      '-o, --output <format>',
-      'Output format: text|json|stream-json (claude only)',
-    )
     .option('--timeout <ms>', 'Abort backend if it runs longer than this', {
       // @ts-expect-error cac's .d.ts types `type` as `any[]`, but the runtime accepts a bare constructor for single-value coercion.
       type: Number,
@@ -57,7 +52,6 @@ async function main(): Promise<number> {
         agent: opts.agent,
         model: opts.model,
         cwd: opts.cwd,
-        output: opts.output,
         timeout: opts.timeout,
         passthrough,
       })

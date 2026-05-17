@@ -10,9 +10,6 @@ export const claudeAdapter: Adapter = {
     if (opts.model) {
       args.push('--model', opts.model)
     }
-    if (opts.output) {
-      args.push('--output-format', opts.output)
-    }
     if (opts.passthrough.length > 0) {
       args.push(...opts.passthrough)
     }
@@ -27,6 +24,10 @@ export const claudeAdapter: Adapter = {
   },
 
   supports(option) {
-    return option === 'output' || option === 'model' || option === 'cwd'
+    return option === 'model' || option === 'cwd'
+  },
+
+  parseEvent(_event) {
+    return null
   },
 }

@@ -13,11 +13,6 @@ export const codexAdapter: Adapter = {
     if (opts.cwd) {
       args.push('-C', opts.cwd)
     }
-    if (opts.output) {
-      process.stderr.write(
-        `dispatch: --output=${opts.output} is not supported by codex exec; ignoring.\n`,
-      )
-    }
     if (opts.passthrough.length > 0) {
       args.push(...opts.passthrough)
     }
@@ -33,5 +28,9 @@ export const codexAdapter: Adapter = {
 
   supports(option) {
     return option === 'model' || option === 'cwd'
+  },
+
+  parseEvent(_event) {
+    return null
   },
 }

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 
 import { claudeAdapter } from '../src/adapters/claude.ts'
 import { codexAdapter } from '../src/adapters/codex.ts'
@@ -14,21 +14,13 @@ describe('claude adapter', () => {
     expect(built.args).toEqual(['-p', 'hello world'])
   })
 
-  it('maps --model and --output-format', () => {
+  it('maps --model', () => {
     const built = claudeAdapter.build({
       prompt: 'go',
       model: 'sonnet',
-      output: 'json',
       passthrough: [],
     })
-    expect(built.args).toEqual([
-      '-p',
-      '--model',
-      'sonnet',
-      '--output-format',
-      'json',
-      'go',
-    ])
+    expect(built.args).toEqual(['-p', '--model', 'sonnet', 'go'])
   })
 
   it('inserts passthrough args before the prompt', () => {
@@ -91,38 +83,9 @@ describe('codex adapter', () => {
     ])
   })
 
-  it('reports unsupported options via supports()', () => {
-    expect(codexAdapter.supports('output')).toBe(false)
+  it('supports model and cwd options', () => {
     expect(codexAdapter.supports('model')).toBe(true)
     expect(codexAdapter.supports('cwd')).toBe(true)
-  })
-
-  let stderrSpy: ReturnType<typeof mock>
-  let originalWrite: typeof process.stderr.write
-  beforeEach(() => {
-    originalWrite = process.stderr.write
-    stderrSpy = mock(() => true)
-    process.stderr.write = stderrSpy as unknown as typeof process.stderr.write
-  })
-  afterEach(() => {
-    process.stderr.write = originalWrite
-  })
-
-  it('warns when --output text is supplied (codex does not support it)', () => {
-    codexAdapter.build({ prompt: 'p', output: 'text', passthrough: [] })
-    expect(stderrSpy).toHaveBeenCalled()
-    const msg = String((stderrSpy.mock.calls[0] ?? [])[0] ?? '')
-    expect(msg).toContain('--output=text is not supported by codex exec')
-  })
-
-  it('warns when --output json is supplied', () => {
-    codexAdapter.build({ prompt: 'p', output: 'json', passthrough: [] })
-    expect(stderrSpy).toHaveBeenCalled()
-  })
-
-  it('does not warn when --output is omitted', () => {
-    codexAdapter.build({ prompt: 'p', passthrough: [] })
-    expect(stderrSpy).not.toHaveBeenCalled()
   })
 })
 

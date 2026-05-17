@@ -1,5 +1,4 @@
 import { resolveAdapter } from '../adapters/registry.ts'
-import type { OutputFormat } from '../adapters/types.ts'
 import { defaultAgent, defaultModel } from '../lib/config.ts'
 import { runStreaming } from '../lib/spawn.ts'
 import { readStdin } from '../lib/stdin.ts'
@@ -9,12 +8,9 @@ export interface ExecArgs {
   agent?: string
   model?: string
   cwd?: string
-  output?: string
   timeout?: number
   passthrough: string[]
 }
-
-const VALID_FORMATS: OutputFormat[] = ['text', 'json', 'stream-json']
 
 export async function runExec(args: ExecArgs): Promise<number> {
   const agentName = args.agent ?? defaultAgent()
@@ -35,23 +31,10 @@ export async function runExec(args: ExecArgs): Promise<number> {
     return 2
   }
 
-  let output: OutputFormat | undefined
-  if (args.output) {
-    if (!VALID_FORMATS.includes(args.output as OutputFormat)) {
-      process.stderr.write(
-        `dispatch: invalid --output '${args.output}'. ` +
-          `Expected one of: ${VALID_FORMATS.join(', ')}.\n`,
-      )
-      return 2
-    }
-    output = args.output as OutputFormat
-  }
-
   const built = adapter.build({
     prompt,
     model: args.model ?? defaultModel(),
     cwd: args.cwd,
-    output,
     passthrough: args.passthrough,
   })
 
