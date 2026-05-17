@@ -87,13 +87,52 @@ export async function runInstall(scope: 'global' | 'project'): Promise<number> {
     return 1
   }
 
+  // Shape guard — JSON was parseable but may not be a plain object
+  if (
+    typeof settings !== 'object' ||
+    settings === null ||
+    Array.isArray(settings)
+  ) {
+    process.stderr.write(
+      `dispatch: install: ${settingsPath} contains invalid JSON — fix it manually\n`,
+    )
+    return 1
+  }
+
+  // Guard hooks field if present
+  if (
+    'hooks' in settings &&
+    (typeof settings.hooks !== 'object' ||
+      settings.hooks === null ||
+      Array.isArray(settings.hooks))
+  ) {
+    process.stderr.write(
+      `dispatch: install: ${settingsPath} contains invalid JSON — fix it manually\n`,
+    )
+    return 1
+  }
+
+  // Guard PreToolUse if present
+  if (
+    settings.hooks &&
+    'PreToolUse' in settings.hooks &&
+    !Array.isArray(settings.hooks.PreToolUse)
+  ) {
+    process.stderr.write(
+      `dispatch: install: ${settingsPath} contains invalid JSON — fix it manually\n`,
+    )
+    return 1
+  }
+
   settings.hooks ??= {}
   settings.hooks.PreToolUse ??= []
   const preToolUse = settings.hooks.PreToolUse
 
   const existingBashBlock = preToolUse.find(
     (b) =>
-      b.matcher === 'Bash' && b.hooks.some((h) => h.command === OUR_COMMAND),
+      b.matcher === 'Bash' &&
+      Array.isArray(b.hooks) &&
+      b.hooks.some((h) => h.command === OUR_COMMAND),
   )
   if (existingBashBlock) {
     process.stdout.write(
@@ -102,7 +141,9 @@ export async function runInstall(scope: 'global' | 'project'): Promise<number> {
     return 0
   }
 
-  const bashBlock = preToolUse.find((b) => b.matcher === 'Bash')
+  const bashBlock = preToolUse.find(
+    (b) => b.matcher === 'Bash' && Array.isArray(b.hooks),
+  )
   if (bashBlock) {
     bashBlock.hooks.push({ ...OUR_ENTRY })
   } else {
@@ -145,6 +186,43 @@ export async function runUninstall(
     return 0
   }
 
+  // Shape guard — JSON was parseable but may not be a plain object
+  if (
+    typeof settings !== 'object' ||
+    settings === null ||
+    Array.isArray(settings)
+  ) {
+    process.stderr.write(
+      `dispatch: uninstall: ${settingsPath} contains invalid JSON — fix it manually\n`,
+    )
+    return 1
+  }
+
+  // Guard hooks field if present
+  if (
+    'hooks' in settings &&
+    (typeof settings.hooks !== 'object' ||
+      settings.hooks === null ||
+      Array.isArray(settings.hooks))
+  ) {
+    process.stderr.write(
+      `dispatch: uninstall: ${settingsPath} contains invalid JSON — fix it manually\n`,
+    )
+    return 1
+  }
+
+  // Guard PreToolUse if present
+  if (
+    settings.hooks &&
+    'PreToolUse' in settings.hooks &&
+    !Array.isArray(settings.hooks.PreToolUse)
+  ) {
+    process.stderr.write(
+      `dispatch: uninstall: ${settingsPath} contains invalid JSON — fix it manually\n`,
+    )
+    return 1
+  }
+
   const preToolUse = settings.hooks?.PreToolUse
   if (!preToolUse) {
     process.stdout.write(
@@ -155,6 +233,7 @@ export async function runUninstall(
 
   let removedAny = false
   for (const block of preToolUse) {
+    if (!Array.isArray(block.hooks)) continue // skip malformed block; leave it untouched
     const before = block.hooks.length
     block.hooks = block.hooks.filter((h) => h.command !== OUR_COMMAND)
     if (block.hooks.length < before) removedAny = true
@@ -167,7 +246,9 @@ export async function runUninstall(
     return 0
   }
 
-  settings.hooks!.PreToolUse = preToolUse.filter((b) => b.hooks.length > 0)
+  settings.hooks!.PreToolUse = preToolUse.filter(
+    (b) => !Array.isArray(b.hooks) || b.hooks.length > 0,
+  )
   if (settings.hooks!.PreToolUse.length === 0) {
     delete settings.hooks!.PreToolUse
   }

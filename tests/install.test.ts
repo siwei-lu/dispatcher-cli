@@ -253,6 +253,85 @@ describe('install / uninstall', () => {
     expect(result).toBe(1)
   })
 
+  it('install returns 1 when settings JSON is a top-level string', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-test-'))
+    process.env['HOME'] = tmpDir
+
+    const settingsPath = join(tmpDir, '.claude', 'settings.json')
+    await mkdir(join(tmpDir, '.claude'), { recursive: true })
+    writeFileSync(settingsPath, '"a string"')
+
+    const result = await runInstall('global')
+    expect(result).toBe(1)
+  })
+
+  it('install returns 1 when settings JSON has hooks as a non-object', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-test-'))
+    process.env['HOME'] = tmpDir
+
+    const settingsPath = join(tmpDir, '.claude', 'settings.json')
+    await mkdir(join(tmpDir, '.claude'), { recursive: true })
+    writeFileSync(settingsPath, JSON.stringify({ hooks: 'not-an-object' }))
+
+    const result = await runInstall('global')
+    expect(result).toBe(1)
+  })
+
+  it('install returns 1 when settings JSON has PreToolUse as a non-array', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-test-'))
+    process.env['HOME'] = tmpDir
+
+    const settingsPath = join(tmpDir, '.claude', 'settings.json')
+    await mkdir(join(tmpDir, '.claude'), { recursive: true })
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({ hooks: { PreToolUse: 'not-an-array' } }),
+    )
+
+    const result = await runInstall('global')
+    expect(result).toBe(1)
+  })
+
+  it('install does not crash when a PreToolUse block has no hooks array', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-test-'))
+    process.env['HOME'] = tmpDir
+
+    const settingsPath = join(tmpDir, '.claude', 'settings.json')
+    await mkdir(join(tmpDir, '.claude'), { recursive: true })
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        hooks: { PreToolUse: [{ matcher: 'Bash' }] },
+      }),
+    )
+
+    const result = await runInstall('global')
+    expect(result).toBe(0)
+
+    // The malformed block must still be present, and our new block must be appended
+    const content = JSON.parse(
+      require('node:fs').readFileSync(settingsPath, 'utf8'),
+    ) as {
+      hooks: { PreToolUse: Array<{ matcher: string; hooks?: unknown }> }
+    }
+    const blocks = content.hooks.PreToolUse
+    // malformed block is preserved
+    expect(blocks.some((b) => b.matcher === 'Bash' && !('hooks' in b))).toBe(
+      true,
+    )
+    // our new block was appended
+    expect(
+      blocks.some(
+        (b) =>
+          b.matcher === 'Bash' &&
+          Array.isArray(b.hooks) &&
+          (b.hooks as Array<{ command?: string }>).some(
+            (h) => h.command === 'dispatch hook bash-pre',
+          ),
+      ),
+    ).toBe(true)
+  })
+
   it('sibling byte-identity: install+uninstall leaves sibling entry unchanged', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-test-'))
     process.env['HOME'] = tmpDir
