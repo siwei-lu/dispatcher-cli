@@ -50,6 +50,25 @@ Format per entry: **decision** → **why** → **how to apply / counter-example*
   "claude binary not found on PATH — install it from
   https://docs.claude.com/en/docs/claude-code/setup and try again."
 
+## cac Quirks
+
+- **`--version` is a reserved option name in cac.** `cli.version()` registers a global `--version`
+  (boolean) that shadows any subcommand option also named `--version`. To add a `--version <tag>`
+  flag on a subcommand (e.g. `dispatch update`), remove `cli.version()` and handle the global
+  `-v / --version` case manually before the `cli.parse()` call:
+  ```typescript
+  const hasSubcommand = cliArgs.length > 0 && !cliArgs[0]?.startsWith('-')
+  if (
+    !hasSubcommand &&
+    (cliArgs.includes('--version') || cliArgs.includes('-v'))
+  ) {
+    process.stdout.write(pkg.version + '\n')
+    return 0
+  }
+  ```
+  Side effect: cac suppresses `--version <tag>` from the subcommand's help output (it still
+  parses correctly). Document the flag in the README commands table instead.
+
 ## Code Style
 
 - Prettier rules (`package.json#prettier`) are non-negotiable. No semicolons, single quotes,
