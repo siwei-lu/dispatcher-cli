@@ -150,6 +150,7 @@ Commands:
   hook <name>                           Run a dispatch hook handler
   install [--scope global|project]      Register the Claude Code background hook
   uninstall [--scope global|project]    Remove the Claude Code background hook
+  update [--check] [--version <tag>] [--prerelease]  Self-update the dispatch binary from GitHub Releases
 
 Common exec options:
   -a, --agent <name>            Agent backend (claude|codex)
