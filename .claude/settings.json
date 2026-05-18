@@ -6,6 +6,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "if jq -r '.tool_input.command' | grep -qE '(^|[[:space:]/])dist/dispatch([[:space:]]|$)'; then echo 'Use the linked `dispatch` on PATH instead of `dist/dispatch` (linked at /Users/siwei.lu/.local/bin/dispatch).' >&2; exit 2; fi"
+          },
+          {
+            "type": "command",
             "command": "node .orchestrator/hooks/pre-bash-gate.cjs"
           },
           {
