@@ -15,7 +15,7 @@
     "dev": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "build:bin": "bun build src/index.ts --compile --outfile dist/dispatch",
+    "build:bin": "bun build src/index.ts --compile --outfile dist/dispatch && (codesign --sign - --force dist/dispatch 2>/dev/null || true)",
     "prepare": "husky"
   },
   "engines": {

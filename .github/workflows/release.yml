@@ -19,18 +19,22 @@ jobs:
 
   build:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
           - target: bun-darwin-arm64
             artifact: dispatch-darwin-arm64
+            runner: macos-latest
           - target: bun-darwin-x64
             artifact: dispatch-darwin-x64
+            runner: macos-latest
           - target: bun-linux-x64
             artifact: dispatch-linux-x64
+            runner: ubuntu-latest
           - target: bun-linux-arm64
             artifact: dispatch-linux-arm64
+            runner: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -38,6 +42,8 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun build src/index.ts --compile --target ${{ matrix.target }} --outfile dist/${{ matrix.artifact }}
+      - run: codesign --sign - --force dist/${{ matrix.artifact }}
+        if: runner.os == 'macOS'
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
