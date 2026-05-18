@@ -156,3 +156,15 @@ bun test
 bun run typecheck
 bun run dev exec -a claude "hi"
 ```
+
+## Releases
+
+Push a semver tag to trigger a release:
+
+```bash
+git tag v0.6.0 && git push origin v0.6.0
+```
+
+GitHub Actions will run the test suite, cross-compile four standalone binaries
+(darwin-arm64, darwin-x64, linux-x64, linux-arm64), and publish a GitHub Release
+with auto-generated release notes and all four binaries attached.

@@ -24,4 +24,5 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test
+      - run: bun run build:bin
       - run: bunx prettier --check .
