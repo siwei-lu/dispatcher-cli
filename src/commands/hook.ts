@@ -3,7 +3,7 @@ const EXEC_BUN = /(^|[\s;&|])bun\s+run\s+(dev|start)\s+exec(\s|$)/
 const HELP_FLAG = /(^|\s)(-h|--help|--version)(\s|$)/
 
 const BLOCK_REASON =
-  'dispatch exec streams events to stdout and may run for minutes. Re-issue this Bash call with run_in_background: true, then attach the Monitor tool to its shell_id and stop when a line matching the regex ^\\[done\\] arrives — that is the unified completion signal for both the claude and codex adapters (see src/lib/events.ts).'
+  'dispatch exec may run for minutes. Re-issue this Bash call with run_in_background: true.'
 
 const BLOCK_OUTPUT = JSON.stringify({ decision: 'block', reason: BLOCK_REASON })
 
