@@ -1,49 +1,155 @@
 # dispatcher-cli
 
-A tiny [Bun](https://bun.sh) CLI that wraps multiple non-interactive AI coding
-agents behind one command. Today it speaks `claude -p` and `codex exec`; the
-adapter layer makes adding more straightforward.
+Call Codex from Claude Code without leaving your session.
+
+Pick the model that is better at this refactor, review, or test failure without
+restarting the conversation. Works the other way too: call Claude Code from
+Codex CLI with the same `dispatch exec` command.
 
 ```bash
-dispatch exec -a claude "explain this repo"
-echo "summarize README" | dispatch exec -a codex
-dispatch exec -a claude -- --verbose --debug "drill in"
+dispatch exec -a codex "review this diff for regressions"
+echo "summarize README" | dispatch exec -a claude
 dispatch list
 ```
 
 ## Why
 
-If you orchestrate AI coding agents from scripts, CI, or other agents, you
-quickly grow tired of remembering vendor-specific flags. `dispatcher-cli` gives
-you one stable surface — `dispatch exec` — and routes calls to whichever
-backend is selected.
+AI coding agents are good at different kinds of work. When you are deep in
+Claude Code and want a second agent to inspect a diff, draft a plan, or chase a
+focused bug, `dispatch exec -a codex ...` hands that subtask to Codex without
+leaving the current terminal session.
+
+The main workflow is Claude Code driving Codex subagents:
+
+```bash
+dispatch exec -a codex "find the bug in the failing auth tests"
+dispatch exec -a codex "review the unstaged diff for regressions"
+dispatch exec -a codex "implement the small docs cleanup in README.md"
+```
+
+The reverse is supported too:
+
+```bash
+dispatch exec -a claude "explain the architecture of this repo"
+```
 
 ## Install
 
+Download the standalone `dispatch` binary from the GitHub Releases page:
+
+<https://github.com/siwei-lu/dispatcher-cli/releases>
+
+Pick the asset for your machine, make it executable, and put it somewhere on
+your `PATH`:
+
+```bash
+# macOS Apple Silicon
+curl -L https://github.com/siwei-lu/dispatcher-cli/releases/latest/download/dispatch-darwin-arm64 -o dispatch
+chmod +x dispatch
+sudo mv dispatch /usr/local/bin/dispatch
+```
+
+Available release assets:
+
+- `dispatch-darwin-arm64`
+- `dispatch-darwin-x64`
+- `dispatch-linux-x64`
+- `dispatch-linux-arm64`
+
+You also need the backend CLIs you want to call:
+
+- `codex` for OpenAI Codex CLI
+- `claude` for Claude Code
+
+Check what `dispatch` can see:
+
+```bash
+dispatch list
+```
+
+### Build From Source
+
 ```bash
 bun install
-bun link        # exposes the `dispatch` bin globally
-# or
-bun run src/index.ts exec -a claude "hi"
+bun run build:bin
+./dist/dispatch list
 ```
 
-Build a standalone binary:
+## Use It Inside Claude Code
+
+Put this in your project `CLAUDE.md` or global Claude Code instructions:
+
+```markdown
+## Subagents
+
+For subagent work, run dispatch from Bash:
+
+`dispatch exec -a codex "<task>"`
+
+Use this instead of spawning an AI coding subagent directly. Run it in the
+background so Claude Code can continue while Codex works, and check the command
+progress or output anytime.
+```
+
+Example prompts that work well:
 
 ```bash
-bun run build:bin   # → dist/dispatch
+dispatch exec -a codex "review the current git diff for correctness issues"
+dispatch exec -a codex "find why bun test is failing and suggest the smallest fix"
+dispatch exec -a codex "inspect src/adapters and propose a safe refactor plan"
 ```
+
+## Enforce Background Dispatch In Claude Code
+
+Run this once:
+
+```bash
+dispatch install
+```
+
+`dispatch install` registers a Claude Code `PreToolUse` Bash hook. When Claude
+Code tries to run `dispatch exec` in the foreground, the hook blocks it and asks
+Claude to re-run the command with `run_in_background: true`.
+
+That matters because delegated agent work can take minutes. Running it in the
+background lets the main Claude Code session keep moving while the Codex or
+Claude subagent works. You can inspect progress and output from the background
+Bash command whenever you want.
+
+Use project scope if you only want the hook in the current git repo:
+
+```bash
+dispatch install --scope project
+```
+
+Remove it later with:
+
+```bash
+dispatch uninstall
+dispatch uninstall --scope project
+```
+
+## Why Not MCP For This?
+
+For this handoff workflow, `dispatch` intentionally uses shell execution instead
+of MCP bridges such as `codex mcp-server` or `codex-as-mcp`.
+
+MCP bridges can leave the parent agent waiting on a tool call with little useful
+progress visibility. A background `dispatch exec` is just a shell job: Claude
+Code can keep working, and you can check the running command's output whenever
+you need it.
 
 ## Usage
 
-```
+```text
 Usage: dispatch <command> [options]
 
 Commands:
   exec [...prompt]                      Run a non-interactive prompt against an AI coding agent
   list                                  Show available agent backends and their status
-  hook <name>                           Run a dispatch hook handler (for use in Claude Code settings)
-  install [--scope global|project]      Register the PreToolUse Bash hook in Claude Code settings
-  uninstall [--scope global|project]    Remove the hook from Claude Code settings
+  hook <name>                           Run a dispatch hook handler
+  install [--scope global|project]      Register the Claude Code background hook
+  uninstall [--scope global|project]    Remove the Claude Code background hook
 
 Common exec options:
   -a, --agent <name>            Agent backend (claude|codex)
@@ -55,98 +161,73 @@ Common exec options:
   --                            Forward everything after this verbatim to the backend
 ```
 
-The only supported hook name is `bash-pre`: it reads a Claude Code `PreToolUse` JSON payload from
-stdin and emits an allow (`{}`) or block decision. `install` and `uninstall` default to `--scope
-global`; pass `--scope project` to target `.claude/settings.json` in the current git repo.
+### Prompt Input
 
-### Prompt input
-
-The prompt can be passed positionally **or** piped via stdin:
+Pass the prompt as arguments:
 
 ```bash
-dispatch exec -a claude "what does package.json look like"
-cat README.md | dispatch exec -a codex
+dispatch exec -a codex "summarize this repo"
 ```
 
-### Environment defaults
+Or pipe it through stdin:
 
-| Variable         | Effect                               |
-| ---------------- | ------------------------------------ |
-| `DISPATCH_AGENT` | Default agent when `-a` is omitted.  |
-| `DISPATCH_MODEL` | Default model passed to the backend. |
+```bash
+cat README.md | dispatch exec -a claude
+```
 
-CLI flags always win over env vars.
+### Environment Defaults
+
+| Variable         | Effect                              |
+| ---------------- | ----------------------------------- |
+| `DISPATCH_AGENT` | Default agent when `-a` is omitted. |
+| `DISPATCH_MODEL` | Default model passed to the agent.  |
+
+CLI flags override environment variables.
 
 ## Output
 
-Both backends run in structured streaming mode. Events are printed as a
-bracketed stream to stdout as they arrive:
+`dispatch exec` streams progress as bracketed events:
 
-```
-[start] claude · claude-opus-4-7
-[task] explain this repo
-[tool] Bash: find . -name "*.ts" | head -20
-[done] This repo is a Bun-based CLI that...
-cost=$0.0031 · 22k tokens · 4.2s
+```text
+[task] review this diff for regressions
+[start] codex
+[tool] shell: git diff --stat
+[done] The diff looks safe, but add a test for...
 ```
 
-### Structured output with `--log-file`
-
-Pass `--log-file <path>` to route the bracketed stream to a file and receive a
-compact JSON exit envelope on stdout instead:
+Write the rendered stream to a file and return a compact JSON envelope on
+stdout:
 
 ```bash
-dispatch exec -a claude "explain this repo" --log-file /tmp/dispatch.log
-# stdout: {"status":"ok","exitCode":0,"summary":"This repo is...","log":"/tmp/dispatch.log"}
-# /tmp/dispatch.log: full [task]/[start]/[tool]/[done] stream
+dispatch exec -a codex "review this diff" --log-file /tmp/dispatch.log
 ```
 
-The parent directory must already exist; if it does not, dispatch exits 1
-before spawning the backend. The file is opened in write/truncate mode, so
-each run replaces the previous log.
-
-### Machine-readable events with `--progress-format json`
-
-Pass `--progress-format json` to emit each raw `DispatcherEvent` as a newline-
-delimited JSON record to stderr (before rendering). This is compatible with
-`--log-file`:
+Emit raw machine-readable events:
 
 ```bash
 dispatch exec -a codex "fix the bug" --progress-format json 2>events.ndjson
 ```
 
-Only `json` is a valid format value; any other value exits 2.
+## What This Is Not
 
-## Exit codes
+`dispatcher-cli` is not a chat UI, agent runtime, or session manager. It does
+not persist conversations and does not call model APIs directly.
 
-| Code | Meaning                                                                                                                        |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 0    | Backend exited cleanly                                                                                                         |
-| 1    | Unknown top-level command, flag pre-condition failure (e.g. `--log-file` parent dir missing), or dispatcher-cli internal error |
-| 2    | Bad arguments to a known subcommand (missing prompt, unknown agent, bad `--scope` or `--progress-format` value, etc.)          |
-| 124  | Backend was killed by `--timeout`                                                                                              |
-| 127  | Backend binary not found on PATH                                                                                               |
-| \*   | Otherwise mirrors the underlying backend's exit code                                                                           |
+It wraps installed AI coding CLIs in non-interactive mode:
 
-## Adapters
+- Claude Code via `claude -p`
+- Codex CLI via `codex exec`
 
-Each adapter implements:
+## Exit Codes
 
-```ts
-interface Adapter {
-  name: string
-  binary: string
-  build(opts: DispatchOptions): BuiltCommand
-  supports(option: 'model' | 'cwd'): boolean
-  parseEvent(event: unknown): DispatcherEvent | null
-}
-```
-
-The two built-in adapters live in `src/adapters/`. Adding a new agent is just a
-new file plus a row in `src/adapters/registry.ts`.
-
-Both adapters run fire-and-forget: sessions are never persisted to disk
-(`--ephemeral` for codex, `--no-session-persistence` for claude).
+| Code | Meaning                                                                                 |
+| ---- | --------------------------------------------------------------------------------------- |
+| 0    | Backend exited cleanly                                                                  |
+| 1    | Unknown top-level command, flag pre-condition failure, or dispatcher-cli internal error |
+| 2    | Bad arguments to a known subcommand                                                     |
+| 124  | Backend was killed by `--timeout`                                                       |
+| 127  | Backend binary not found on `PATH`                                                      |
+| \*   | Otherwise mirrors the underlying backend's exit code                                    |
 
 ## Develop
 
@@ -159,12 +240,12 @@ bun run dev exec -a claude "hi"
 
 ## Releases
 
-Push a semver tag to trigger a release:
+Push a semver tag to publish a release:
 
 ```bash
-git tag v0.6.0 && git push origin v0.6.0
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
-GitHub Actions will run the test suite, cross-compile four standalone binaries
-(darwin-arm64, darwin-x64, linux-x64, linux-arm64), and publish a GitHub Release
-with auto-generated release notes and all four binaries attached.
+GitHub Actions runs the test suite, builds standalone binaries for macOS and
+Linux, and attaches them to the GitHub Release.
