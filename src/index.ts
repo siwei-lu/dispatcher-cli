@@ -6,6 +6,7 @@ import { runExec } from './commands/exec.ts'
 import { runHook } from './commands/hook.ts'
 import { runInstall, runUninstall } from './commands/install.ts'
 import { runList } from './commands/list.ts'
+import { runUpdate } from './commands/update.ts'
 
 interface ExecOpts {
   agent?: string
@@ -128,13 +129,45 @@ async function main(): Promise<number> {
       process.exit(await runUninstall(scope))
     })
 
+  cli
+    .command('update', 'Check for and install a new dispatch binary release')
+    .option('--check', 'Print update status only; never write to disk')
+    .option(
+      '--version <tag>',
+      'Download and install a specific release tag (e.g. v0.6.0)',
+    )
+    .option('--prerelease', 'Include prerelease tags when resolving latest')
+    .action(
+      async (opts: {
+        check: boolean
+        version?: string
+        prerelease: boolean
+      }) => {
+        process.exit(
+          await runUpdate({
+            check: opts.check ?? false,
+            version: opts.version,
+            prerelease: opts.prerelease ?? false,
+          }),
+        )
+      },
+    )
+
   cli.help()
-  cli.version(pkg.version)
+
+  const hasSubcommand = cliArgs.length > 0 && !cliArgs[0]?.startsWith('-')
+  if (
+    !hasSubcommand &&
+    (cliArgs.includes('--version') || cliArgs.includes('-v'))
+  ) {
+    process.stdout.write(pkg.version + '\n')
+    return 0
+  }
 
   try {
     const parsed = cli.parse(['bun', 'dispatch', ...cliArgs], { run: false })
 
-    if (parsed.options.help || parsed.options.version) return 0
+    if (parsed.options.help) return 0
 
     const matched = cli.matchedCommand
     if (!matched || matched.name === '') {
