@@ -15,6 +15,7 @@ export const codexAdapter: Adapter = {
       '--json',
       '--ephemeral',
       '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
     ]
 
     if (opts.model) {

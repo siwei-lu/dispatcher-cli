@@ -162,6 +162,7 @@ describe('codex adapter', () => {
       '--json',
       '--ephemeral',
       '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
       'hello',
     ])
   })
@@ -178,6 +179,7 @@ describe('codex adapter', () => {
       '--json',
       '--ephemeral',
       '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
       '-m',
       'o4',
       '-C',
@@ -197,6 +199,7 @@ describe('codex adapter', () => {
       '--json',
       '--ephemeral',
       '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
       '--ephemeral',
       'go',
     ])
