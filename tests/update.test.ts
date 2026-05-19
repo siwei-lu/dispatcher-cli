@@ -50,37 +50,39 @@ describe('runUpdate', () => {
 
   it('--check with latest equal to local prints already on latest and exits 0', async () => {
     const { binaryPath } = makeBinary()
-    stubFetch(() => new Response(JSON.stringify(makeRelease('v0.6.2'))))
+    stubFetch(() => new Response(JSON.stringify(makeRelease('v1.0.0'))))
 
     const code = await runUpdate({
       check: true,
       prerelease: false,
       _realBinaryPath: binaryPath,
+      _localVersion: '1.0.0',
       _platform: 'darwin',
       _arch: 'arm64',
     })
 
     expect(code).toBe(0)
     expect(stdout.join('')).toContain(
-      'dispatch update: already on latest (v0.6.2)',
+      'dispatch update: already on latest (v1.0.0)',
     )
   })
 
   it('--check with newer latest prints availability, exits 1, and leaves binary unchanged', async () => {
     const { binaryPath } = makeBinary()
-    stubFetch(() => new Response(JSON.stringify(makeRelease('v0.7.0'))))
+    stubFetch(() => new Response(JSON.stringify(makeRelease('v1.1.0'))))
 
     const code = await runUpdate({
       check: true,
       prerelease: false,
       _realBinaryPath: binaryPath,
+      _localVersion: '1.0.0',
       _platform: 'darwin',
       _arch: 'arm64',
     })
 
     expect(code).toBe(1)
     expect(stdout.join('')).toContain(
-      "dispatch update: v0.7.0 available (currently v0.6.2). Run 'dispatch update' to install.",
+      "dispatch update: v1.1.0 available (currently v1.0.0). Run 'dispatch update' to install.",
     )
     expect(readFileSync(binaryPath, 'utf8')).toBe('old binary')
   })
@@ -89,7 +91,7 @@ describe('runUpdate', () => {
     const { binaryPath } = makeBinary()
     const fetchMock = stubFetch((url) => {
       if (url.startsWith('https://api.github.com/')) {
-        return new Response(JSON.stringify(makeRelease('v0.7.0')))
+        return new Response(JSON.stringify(makeRelease('v1.1.0')))
       }
       if (url === 'https://example.com/dispatch-darwin-arm64') {
         return new Response('new binary')
@@ -101,6 +103,7 @@ describe('runUpdate', () => {
       check: false,
       prerelease: false,
       _realBinaryPath: binaryPath,
+      _localVersion: '1.0.0',
       _platform: 'darwin',
       _arch: 'arm64',
     })
@@ -109,7 +112,7 @@ describe('runUpdate', () => {
     expect(fetchMock.mock.calls.length).toBe(2)
     expect(readFileSync(binaryPath, 'utf8')).toBe('new binary')
     expect(stdout.join('')).toContain(
-      'dispatch update: upgraded v0.6.2 → v0.7.0',
+      'dispatch update: upgraded v1.0.0 → v1.1.0',
     )
   })
 

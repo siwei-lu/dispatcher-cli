@@ -11,6 +11,7 @@ interface UpdateOpts {
   _realBinaryPath?: string
   _platform?: string
   _arch?: string
+  _localVersion?: string
 }
 
 interface ReleaseAsset {
@@ -280,7 +281,7 @@ export async function runUpdate(opts: UpdateOpts): Promise<number> {
   const release = await resolveRelease(opts)
   if (!release) return 1
 
-  const localVersion = normalizeVersion(pkg.version)
+  const localVersion = normalizeVersion(opts._localVersion ?? pkg.version)
   const releaseVersion = normalizeVersion(release.tag_name)
 
   if (!opts.version) {
