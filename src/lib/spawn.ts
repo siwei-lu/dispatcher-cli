@@ -25,7 +25,8 @@ export async function runStreaming(
 
   const proc = Bun.spawn([resolved, ...built.args], {
     cwd: built.cwd ?? process.cwd(),
-    stdin: 'inherit',
+    // parallel background callers share one stdin FD — inheriting blocks second+ processes on EOF
+    stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'inherit',
     env: process.env,
