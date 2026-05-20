@@ -218,7 +218,7 @@ async function installBinary(
       return false
     }
     tempCreated = true
-    await Bun.write(tempPath, resp)
+    await Bun.write(tempPath, await resp.bytes())
     await chmod(tempPath, 0o755)
     await rename(tempPath, realPath)
     renamed = true
