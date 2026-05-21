@@ -227,7 +227,7 @@ It wraps installed AI coding CLIs in non-interactive mode:
 | 0    | Backend exited cleanly                                                                  |
 | 1    | Unknown top-level command, flag pre-condition failure, or dispatcher-cli internal error |
 | 2    | Bad arguments to a known subcommand                                                     |
-| 124  | Backend was killed by `--timeout` or `--idle-timeout` (default: 120 000 ms)             |
+| 124  | Backend was killed by `--timeout` or `--idle-timeout` (default: 120000 ms)              |
 | 127  | Backend binary not found on `PATH`                                                      |
 | \*   | Otherwise mirrors the underlying backend's exit code                                    |
 
