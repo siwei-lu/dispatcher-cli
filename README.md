@@ -157,6 +157,7 @@ Common exec options:
   -m, --model <model>           Model identifier passed to the backend
   -C, --cwd <dir>               Working directory for the spawned process
       --timeout <ms>            Abort backend if it exceeds this duration
+      --idle-timeout <ms>       Kill backend if no output for this long (default: 120000)
       --log-file <path>         Write rendered output to file; stdout becomes a JSON exit envelope
       --progress-format <fmt>   Emit raw DispatcherEvents as JSON lines to stderr (only: json)
   --                            Forward everything after this verbatim to the backend
@@ -226,7 +227,7 @@ It wraps installed AI coding CLIs in non-interactive mode:
 | 0    | Backend exited cleanly                                                                  |
 | 1    | Unknown top-level command, flag pre-condition failure, or dispatcher-cli internal error |
 | 2    | Bad arguments to a known subcommand                                                     |
-| 124  | Backend was killed by `--timeout`                                                       |
+| 124  | Backend was killed by `--timeout` or `--idle-timeout` (default: 120000 ms)              |
 | 127  | Backend binary not found on `PATH`                                                      |
 | \*   | Otherwise mirrors the underlying backend's exit code                                    |
 

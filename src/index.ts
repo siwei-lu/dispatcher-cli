@@ -13,6 +13,7 @@ interface ExecOpts {
   model?: string
   cwd?: string
   timeout?: number
+  idleTimeout?: number
   logFile?: string
   progressFormat?: string
 }
@@ -48,6 +49,14 @@ async function main(): Promise<number> {
       type: Number,
     })
     .option(
+      '--idle-timeout <ms>',
+      'Kill backend if it produces no output for this long (useful for codex/gpt-5.5 stream stalls)',
+      {
+        // @ts-expect-error cac's .d.ts types `type` as `any[]`, but the runtime accepts a bare constructor for single-value coercion.
+        type: Number,
+      },
+    )
+    .option(
       '--log-file <path>',
       'Write rendered output to file; stdout becomes a JSON exit envelope',
     )
@@ -66,6 +75,7 @@ async function main(): Promise<number> {
         model: opts.model,
         cwd: opts.cwd,
         timeout: opts.timeout,
+        idleTimeout: opts.idleTimeout,
         passthrough,
         logFile: opts.logFile,
         progressFormat: opts.progressFormat,

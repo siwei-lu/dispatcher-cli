@@ -58,6 +58,8 @@ filtered event view defined by FM-008.
   - `-m, --model <model>` — pass-through model override.
   - `-C, --cwd <dir>` — working directory for the subprocess.
   - `--timeout <ms>` — kill the subprocess if it exceeds this duration.
+  - `--idle-timeout <ms>` — kill the subprocess if it produces no stdout output
+    for this long. Default: 120,000ms. Pass `0` to disable entirely.
 - There is **no** `-o/--output` flag. Backend output is always the structured
   event stream; the user-facing rendering is fixed (see FM-008).
 - Prompt resolution order: positional arg → stdin → error (exit 2).
@@ -393,6 +395,174 @@ left to the caller.
 - `echo '{"tool_name":"Read","tool_input":{}}' | dispatch hook bash-pre` → `{}` (non-Bash tools pass through).
 - `echo 'not json' | dispatch hook bash-pre` → `{}` with exit code 0 (fail-open).
 
+### FM-013: `dispatch update` Subcommand
+
+**Priority:** P1
+**Dependencies:** FM-001
+**Description:** Self-update the standalone `dispatch` binary by checking the
+latest GitHub Release on `siwei-lu/dispatcher-cli` and atomically replacing the
+currently-running binary with the matching platform asset. Also supports a
+check-only mode for scripts/CI and a version pin for rollback.
+
+**Constraints:**
+
+- Usage:
+  - `dispatch update` — fetch latest release; if newer than the embedded
+    version, download and replace the binary.
+  - `dispatch update --check` — print status and exit; never write to disk.
+  - `dispatch update --version <tag>` — pin to a specific release tag
+    (e.g. `v0.6.0`); downloads and replaces unconditionally, even if it's
+    the same as or older than the running version. Used for rollback.
+  - `dispatch update --prerelease` — include prerelease tags when resolving
+    "latest" (default: stable releases only).
+  - `--check` and `--version` are mutually exclusive; combining them exits 2
+    with a usage error.
+- Release source: `https://api.github.com/repos/siwei-lu/dispatcher-cli/releases`.
+  - "Latest stable" = `GET /releases/latest` (GitHub already filters
+    prereleases and drafts out of this endpoint).
+  - "Latest including prerelease" = `GET /releases?per_page=10`, then pick
+    the first non-draft entry (the list is already sorted newest-first).
+  - All requests send `User-Agent: dispatch-cli/<embedded-version>` and
+    `Accept: application/vnd.github+json`. No auth header — public repo.
+- Platform → asset mapping (must match the names produced by the release
+  workflow at `.github/workflows/release.yml`):
+  - `darwin` + `arm64` → `dispatch-darwin-arm64`
+  - `darwin` + `x64` → `dispatch-darwin-x64`
+  - `linux` + `x64` → `dispatch-linux-x64`
+  - `linux` + `arm64` → `dispatch-linux-arm64`
+  - Any other `process.platform`/`process.arch` combination → exit 1 with
+    `dispatch: update: no prebuilt binary for <platform>/<arch>`.
+- Current version: read from the bundled `package.json` (already imported as
+  `pkg.version` in `src/index.ts`). Compare to the tag with the leading `v`
+  stripped using SemVer ordering (do not pull in a `semver` dep — implement
+  a minimal `compareSemver(a, b)` returning −1/0/1).
+- Binary path resolution:
+  - Use `process.execPath` to locate the running binary.
+  - If it's a symlink, resolve it once via `fs.realpath` so we replace the
+    real file (this is what `bun link` produces — a symlink in
+    `~/.bun/install/global/node_modules/.bin/dispatch` pointing at the
+    compiled binary).
+  - If the basename of the resolved path is `bun`, `node`, or `tsx`, refuse:
+    `dispatch: update: refusing to self-update — running under <name>, ` +
+    `no compiled dispatch binary to replace. Build one with 'bun run build:bin'.`
+    Exit 1.
+- Download + replace:
+  - Stream the asset over `fetch` into a sibling temp file in the same
+    directory as the resolved binary, named `.<basename>.update-<pid>`.
+    Same-directory guarantees `rename` works (no cross-filesystem move).
+  - `chmod 0755` the temp file before renaming.
+  - `rename` the temp file over the original. On POSIX this is atomic, and
+    the currently-running process is unaffected (it holds the open inode).
+  - If any step fails (network, write, rename), unlink the temp file before
+    exiting non-zero. Never leave half-written files in place.
+- Permissions: if `rename` or temp-file write fails with `EACCES` / `EPERM`,
+  exit 1 with a message naming the path and suggesting the likely fix:
+  `dispatch: update: cannot write to <path>: permission denied. Try ` +
+  `'sudo dispatch update' or re-link the binary into a writable directory.`
+- Output (single-line per status, plain stdout):
+  - Up-to-date:
+    `dispatch update: already on latest (v<X.Y.Z>)` → exit 0.
+  - Newer release available, `--check` mode:
+    `dispatch update: v<new> available (currently v<old>). ` +
+    `Run 'dispatch update' to install.` → exit 1.
+  - Newer release available, install mode:
+    `dispatch update: upgraded v<old> → v<new>` → exit 0.
+  - Pinning via `--version`:
+    `dispatch update: installed v<pinned> (was v<old>)` → exit 0.
+  - Ahead of latest (local build > latest release, e.g. nightly):
+    `dispatch update: running v<old> (latest release is v<new>)` → exit 0.
+- Network / API errors:
+  - Non-2xx from GitHub API → exit 1 with
+    `dispatch: update: GitHub API returned <status>` (include the response
+    body's `message` field if JSON-parseable).
+  - Rate-limit (HTTP 403 with `X-RateLimit-Remaining: 0`) → exit 1 with
+    `dispatch: update: GitHub API rate limit exceeded. Try again after ` +
+    `<reset-time>.` (reset-time formatted from `X-RateLimit-Reset`).
+  - Network failure (fetch throws) → exit 1 with
+    `dispatch: update: network error: <message>`.
+
+**Acceptance Criteria:**
+
+- `dispatch update --check` against a release where embedded version equals
+  the latest tag prints `already on latest (vX.Y.Z)` and exits 0.
+- `dispatch update --check` against a release where embedded version is
+  older than the latest tag prints `vX.Y.Z available (currently vA.B.C)`
+  and exits 1. The binary file is unchanged (verified by `stat` before/after).
+- `dispatch update` from an older version downloads the matching platform
+  asset, replaces the binary atomically, and the replacement reports the
+  new version when invoked (`<bin> --version` prints the new tag, leading
+  `v` stripped). The old PID's continued execution is unaffected.
+- `dispatch update --version v0.0.0-does-not-exist` exits 1 with a message
+  naming the missing tag; no temp file remains in the binary's directory.
+- `dispatch update --check --version v0.6.0` exits 2 with a usage error
+  (mutually-exclusive flags).
+- Running via `bun run src/index.ts update` (i.e. dev mode, no compiled
+  binary) exits 1 with the `refusing to self-update` message.
+- On a platform with no prebuilt asset (simulated by mocking
+  `process.platform` to `freebsd` in tests), exits 1 with
+  `no prebuilt binary for freebsd/<arch>`.
+- A 403 with `X-RateLimit-Remaining: 0` from the GitHub API surfaces the
+  rate-limit message and exits 1; no partial download is written.
+- Unit tests stub `fetch` so the suite has no network dependency.
+
+### FM-014: Idle Timeout Default & Automatic Retry
+
+**Priority:** P1
+**Dependencies:** FM-002
+**Description:** Apply a 2-minute idle-stream timeout by default (no user flag
+required), and automatically retry the entire invocation — up to 3 times — when
+the timeout fires with zero subprocess output. Designed to recover silently from
+transient server-side stream stalls (e.g. `gpt-5.5` WebSocket freezing mid-turn
+with `reasoning_effort: xhigh`) without user intervention.
+
+**Constraints:**
+
+- Default idle timeout is **120,000ms** (2 minutes). Applied to every
+  `dispatch exec` invocation unless the user passes `--idle-timeout`.
+- `--idle-timeout <ms>` overrides the default (any positive integer).
+  `--idle-timeout 0` disables the mechanism entirely — no idle kill, no retries.
+- **"No output" condition for retry:** a timeout fires a retry only if the
+  subprocess wrote **zero bytes** to stdout before the idle timer expired. If
+  any bytes were received (even a single unparseable chunk), the run is treated
+  as in-progress and is NOT retried — exit 124 immediately with a single stderr
+  message.
+- Maximum **3 retries** after the first attempt = 4 total attempts.
+- Before each retry, dispatch writes to stderr:
+  `dispatch: idle timeout (<N>ms, no output) — retrying [attempt X/4]`
+- After all 4 attempts exhaust with no output:
+  `dispatch: idle timeout after 4 attempts — giving up` → exit 124.
+- The retry loop re-spawns the subprocess with identical arguments (same prompt,
+  model, cwd, passthrough flags). No state is shared between attempts; if the
+  backend had made side-effecting changes before stalling, those survive in the
+  filesystem. This is a known limitation — document it in `--help` text.
+- Retry logic lives in `runExec` (`src/commands/exec.ts`), not in `runStreaming`.
+  `runStreaming` remains stateless; `runExec` manages the attempt loop.
+- Track "had output" at the raw byte level inside the `onStdout` closure: wrap
+  the stream with a pass-through `TransformStream` that sets a `hadOutput` flag
+  on the first chunk, before piping into `renderEventStream`.
+
+**Acceptance Criteria:**
+
+- `dispatch exec -a codex "prompt"` (no `--idle-timeout`) behaves identically
+  to `dispatch exec -a codex --idle-timeout 120000 "prompt"`.
+- `dispatch exec -a codex --idle-timeout 0 "prompt"` runs with no idle timer
+  and no retry loop.
+- A subprocess that hangs immediately (zero stdout bytes) is killed after the
+  idle timeout; dispatch retries up to 3 more times; after all 4 attempts
+  exhaust, stderr contains `dispatch: idle timeout after 4 attempts — giving up`
+  and the exit code is 124.
+- Retry stderr lines include the correct attempt counter:
+  `[attempt 2/4]`, `[attempt 3/4]`, `[attempt 4/4]`.
+- A subprocess that emits at least one stdout byte then stalls is killed after
+  the idle timeout but is **not** retried; dispatch exits 124 with the standard
+  `dispatch: no output from subprocess for Nms — killing` message and no retry
+  lines.
+- `--idle-timeout` set to a custom value (e.g. 5000) is respected across all
+  retry attempts.
+- The `--timeout` (wall-clock) flag is independent: if a wall-clock timeout
+  fires during a retry loop, dispatch exits 124 immediately without starting
+  another attempt.
+
 ## Non-Functional Requirements
 
 - Cold-start (Bun): under 100 ms for `dispatch --help`.
@@ -422,8 +592,49 @@ left to the caller.
   refuses to write over unparseable JSON instead of guessing intent.
 - Hook kinds other than `PreToolUse` Bash. FM-010 ships `bash-pre`; future
   hook kinds get their own PRD round.
+- Passive / background update checks (e.g. nagging the user on every
+  invocation when a new release is out). FM-013 only runs when the user
+  explicitly invokes `dispatch update`.
+- Updating npm-installed copies of dispatcher-cli. FM-013 only touches the
+  compiled standalone binary referenced by `process.execPath`; the npm
+  package is updated via `bun add -g dispatcher-cli` or `npm i -g`.
+- Windows binary self-update. The release workflow does not produce a
+  Windows asset, and Windows lacks POSIX `rename`-over-running-binary
+  semantics. FM-013 errors out on `process.platform === 'win32'` along
+  with all other unsupported targets.
+- Signature / checksum verification of downloaded assets. We rely on
+  GitHub's HTTPS transport for integrity in MVP; cryptographic
+  verification gets its own PRD round if/when we publish detached
+  signatures.
 
 ## Changelog
+
+### Round 8 — 2026-05-21
+
+- New FM-014: Idle Timeout Default & Automatic Retry. Bakes in a 120,000ms
+  idle-stream timeout as the default for all `dispatch exec` invocations (no
+  flag required), and adds a retry loop of up to 3 attempts when the timeout
+  fires with zero subprocess output. Targets silent stream stalls on
+  `gpt-5.5`/`xhigh` via the ChatGPT WebSocket. `--idle-timeout 0` disables
+  the mechanism. Retry only fires when no bytes were received; any in-progress
+  output is treated as terminal (no retry). Retry logic lives in `runExec`;
+  `runStreaming` stays stateless.
+- FM-002 updated: `--idle-timeout <ms>` added to the options list with its
+  default (120,000ms) and the `0`-disables semantics documented.
+
+### Round 7 — 2026-05-18
+
+- New FM-013: `dispatch update` subcommand. Self-updates the standalone
+  compiled binary by polling `siwei-lu/dispatcher-cli` GitHub Releases,
+  selecting the matching `dispatch-<platform>-<arch>` asset, and atomically
+  replacing `process.execPath` via temp-file + `rename`. Supports `--check`
+  (script-friendly, never writes), `--version <tag>` (pin/rollback,
+  mutually exclusive with `--check`), and `--prerelease` (opt into
+  prerelease tags). Refuses when running under `bun`/`node`/`tsx` (dev
+  mode — no binary to replace). No new dependencies; uses Bun's built-in
+  `fetch` + `fs/promises`.
+- Out of Scope additions: passive update checks, npm-installed copies,
+  Windows targets, cryptographic signature/checksum verification.
 
 ### Round 6 — 2026-05-18
 
