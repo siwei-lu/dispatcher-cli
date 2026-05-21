@@ -12,7 +12,6 @@ interface ExecOpts {
   agent?: string
   model?: string
   cwd?: string
-  timeout?: number
   idleTimeout?: number
   logFile?: string
   progressFormat?: string
@@ -44,10 +43,6 @@ async function main(): Promise<number> {
     .option('-a, --agent <name>', 'Agent backend (claude|codex)')
     .option('-m, --model <model>', 'Model identifier passed to the backend')
     .option('-C, --cwd <dir>', 'Working directory for the spawned process')
-    .option('--timeout <ms>', 'Abort backend if it runs longer than this', {
-      // @ts-expect-error cac's .d.ts types `type` as `any[]`, but the runtime accepts a bare constructor for single-value coercion.
-      type: Number,
-    })
     .option(
       '--idle-timeout <ms>',
       'Kill backend if it produces no output for this long (useful for codex/gpt-5.5 stream stalls)',
@@ -74,7 +69,6 @@ async function main(): Promise<number> {
         agent: opts.agent,
         model: opts.model,
         cwd: opts.cwd,
-        timeout: opts.timeout,
         idleTimeout: opts.idleTimeout,
         passthrough,
         logFile: opts.logFile,

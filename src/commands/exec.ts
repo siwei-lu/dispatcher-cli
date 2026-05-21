@@ -13,7 +13,6 @@ export interface ExecArgs {
   agent?: string
   model?: string
   cwd?: string
-  timeout?: number
   idleTimeout?: number
   passthrough: string[]
   logFile?: string
@@ -90,7 +89,6 @@ export async function runExec(args: ExecArgs): Promise<number> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let hadOutput = false
     const runResult = await runStreaming(built, {
-      timeoutMs: args.timeout,
       idleTimeoutMs: effectiveIdleTimeout,
       onStdout: async (stream) => {
         const outputStream = stream.pipeThrough(

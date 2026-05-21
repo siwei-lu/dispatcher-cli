@@ -7,7 +7,6 @@ export interface RunResult {
 }
 
 export interface RunOptions {
-  timeoutMs?: number
   idleTimeoutMs?: number
   onStdout?: (stream: ReadableStream<Uint8Array>) => Promise<void>
 }
@@ -74,15 +73,6 @@ export async function runStreaming(
 
   let timedOut = false
   let idleTimedOut = false
-  let timer: ReturnType<typeof setTimeout> | undefined
-  if (opts.timeoutMs && opts.timeoutMs > 0) {
-    timer = setTimeout(() => {
-      timedOut = true
-      proc.kill('SIGTERM')
-      setTimeout(() => proc.kill('SIGKILL'), 2_000).unref()
-    }, opts.timeoutMs)
-    timer.unref?.()
-  }
 
   forwardSignal(proc, 'SIGINT')
   forwardSignal(proc, 'SIGTERM')
@@ -107,7 +97,6 @@ export async function runStreaming(
       })
     : Promise.resolve()
   const [exitCode] = await Promise.all([proc.exited, stdoutPromise])
-  if (timer) clearTimeout(timer)
 
   return { exitCode: timedOut ? 124 : exitCode, timedOut, idleTimedOut }
 }
