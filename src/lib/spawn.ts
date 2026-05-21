@@ -3,11 +3,51 @@ import type { BuiltCommand } from '../adapters/types.ts'
 export interface RunResult {
   exitCode: number
   timedOut: boolean
+  idleTimedOut: boolean
 }
 
 export interface RunOptions {
   timeoutMs?: number
+  idleTimeoutMs?: number
   onStdout?: (stream: ReadableStream<Uint8Array>) => Promise<void>
+}
+
+/**
+ * Wraps a ReadableStream with an inactivity watchdog. `onIdle` is called if no
+ * chunk arrives within `idleMs` milliseconds. The timer resets on every chunk
+ * and is cancelled when the source stream closes normally.
+ */
+export function wrapWithIdleTimeout(
+  source: ReadableStream<Uint8Array>,
+  idleMs: number,
+  onIdle: () => void,
+): ReadableStream<Uint8Array> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  function resetTimer() {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(onIdle, idleMs)
+    timer.unref?.()
+  }
+
+  function clearTimer() {
+    if (timer) clearTimeout(timer)
+    timer = undefined
+  }
+
+  resetTimer()
+
+  return source.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        resetTimer()
+        controller.enqueue(chunk)
+      },
+      flush() {
+        clearTimer()
+      },
+    }),
+  )
 }
 
 export async function runStreaming(
@@ -20,7 +60,7 @@ export async function runStreaming(
       `dispatch: '${built.command}' was not found on PATH. ` +
         `Install it and try again.\n`,
     )
-    return { exitCode: 127, timedOut: false }
+    return { exitCode: 127, timedOut: false, idleTimedOut: false }
   }
 
   const proc = Bun.spawn([resolved, ...built.args], {
@@ -33,6 +73,7 @@ export async function runStreaming(
   })
 
   let timedOut = false
+  let idleTimedOut = false
   let timer: ReturnType<typeof setTimeout> | undefined
   if (opts.timeoutMs && opts.timeoutMs > 0) {
     timer = setTimeout(() => {
@@ -46,8 +87,21 @@ export async function runStreaming(
   forwardSignal(proc, 'SIGINT')
   forwardSignal(proc, 'SIGTERM')
 
+  const stdoutStream: ReadableStream<Uint8Array> =
+    opts.idleTimeoutMs && opts.idleTimeoutMs > 0 && opts.onStdout
+      ? wrapWithIdleTimeout(proc.stdout!, opts.idleTimeoutMs, () => {
+          process.stderr.write(
+            `dispatch: no output from subprocess for ${opts.idleTimeoutMs}ms — killing\n`,
+          )
+          timedOut = true
+          idleTimedOut = true
+          proc.kill('SIGTERM')
+          setTimeout(() => proc.kill('SIGKILL'), 2_000).unref()
+        })
+      : proc.stdout!
+
   const stdoutPromise = opts.onStdout
-    ? opts.onStdout(proc.stdout!).catch((err) => {
+    ? opts.onStdout(stdoutStream).catch((err) => {
         const msg = err instanceof Error ? err.message : String(err)
         process.stderr.write(`dispatch: event stream error: ${msg}\n`)
       })
@@ -55,7 +109,7 @@ export async function runStreaming(
   const [exitCode] = await Promise.all([proc.exited, stdoutPromise])
   if (timer) clearTimeout(timer)
 
-  return { exitCode: timedOut ? 124 : exitCode, timedOut }
+  return { exitCode: timedOut ? 124 : exitCode, timedOut, idleTimedOut }
 }
 
 function forwardSignal(

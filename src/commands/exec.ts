@@ -14,6 +14,7 @@ export interface ExecArgs {
   model?: string
   cwd?: string
   timeout?: number
+  idleTimeout?: number
   passthrough: string[]
   logFile?: string
   progressFormat?: string
@@ -59,6 +60,10 @@ export async function runExec(args: ExecArgs): Promise<number> {
     return 2
   }
 
+  const MAX_ATTEMPTS = 4
+  const effectiveIdleTimeout =
+    args.idleTimeout === 0 ? undefined : (args.idleTimeout ?? 120_000)
+
   let logSink: ReturnType<ReturnType<typeof Bun.file>['writer']> | undefined
   let logWriter: ((s: string) => void) | undefined
   if (resolvedLogFile !== undefined) {
@@ -81,15 +86,49 @@ export async function runExec(args: ExecArgs): Promise<number> {
       : undefined
 
   let capturedDone = null as PendingDone | null
-  const { exitCode } = await runStreaming(built, {
-    timeoutMs: args.timeout,
-    onStdout: async (stream) => {
-      capturedDone = await renderEventStream(stream, adapter, {
-        writer: logWriter,
-        jsonWriter,
-      })
-    },
-  })
+  let exitCode = 0
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let hadOutput = false
+    const runResult = await runStreaming(built, {
+      timeoutMs: args.timeout,
+      idleTimeoutMs: effectiveIdleTimeout,
+      onStdout: async (stream) => {
+        const outputStream = stream.pipeThrough(
+          new TransformStream<Uint8Array, Uint8Array>({
+            transform(chunk, controller) {
+              if (!hadOutput) hadOutput = true
+              controller.enqueue(chunk)
+            },
+          }),
+        )
+        capturedDone = await renderEventStream(outputStream, adapter, {
+          writer: logWriter,
+          jsonWriter,
+        })
+      },
+    })
+    const result = { ...runResult, hadOutput }
+    exitCode = result.exitCode
+
+    if (!result.idleTimedOut || result.hadOutput || attempt === MAX_ATTEMPTS) {
+      if (
+        result.idleTimedOut &&
+        !result.hadOutput &&
+        attempt === MAX_ATTEMPTS
+      ) {
+        process.stderr.write(
+          `dispatch: idle timeout after ${MAX_ATTEMPTS} attempts — giving up\n`,
+        )
+      }
+      break
+    }
+
+    process.stderr.write(
+      `dispatch: idle timeout (${effectiveIdleTimeout}ms, no output) — retrying [attempt ${
+        attempt + 1
+      }/${MAX_ATTEMPTS}]\n`,
+    )
+  }
 
   if (logSink !== undefined) {
     await logSink.flush()
