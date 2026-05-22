@@ -60,8 +60,9 @@ export async function runExec(args: ExecArgs): Promise<number> {
   }
 
   const MAX_ATTEMPTS = 4
+  const RETRY_DELAY_MS = 60_000
   const effectiveIdleTimeout =
-    args.idleTimeout === 0 ? undefined : (args.idleTimeout ?? 120_000)
+    args.idleTimeout === 0 ? undefined : (args.idleTimeout ?? 300_000)
 
   let logSink: ReturnType<ReturnType<typeof Bun.file>['writer']> | undefined
   let logWriter: ((s: string) => void) | undefined
@@ -122,10 +123,11 @@ export async function runExec(args: ExecArgs): Promise<number> {
     }
 
     process.stderr.write(
-      `dispatch: idle timeout (${effectiveIdleTimeout}ms, no output) — retrying [attempt ${
+      `dispatch: idle timeout (${effectiveIdleTimeout}ms, no output) — retrying in 60s [attempt ${
         attempt + 1
       }/${MAX_ATTEMPTS}]\n`,
     )
+    await Bun.sleep(RETRY_DELAY_MS)
   }
 
   if (logSink !== undefined) {

@@ -74,37 +74,46 @@ export async function runStreaming(
   let timedOut = false
   let idleTimedOut = false
 
-  forwardSignal(proc, 'SIGINT')
-  forwardSignal(proc, 'SIGTERM')
+  const cleanups = [
+    forwardSignal(proc, 'SIGINT'),
+    forwardSignal(proc, 'SIGTERM'),
+  ]
 
-  const stdoutStream: ReadableStream<Uint8Array> =
-    opts.idleTimeoutMs && opts.idleTimeoutMs > 0 && opts.onStdout
-      ? wrapWithIdleTimeout(proc.stdout!, opts.idleTimeoutMs, () => {
-          process.stderr.write(
-            `dispatch: no output from subprocess for ${opts.idleTimeoutMs}ms — killing\n`,
-          )
-          timedOut = true
-          idleTimedOut = true
-          proc.kill('SIGTERM')
-          setTimeout(() => proc.kill('SIGKILL'), 2_000).unref()
+  try {
+    const stdoutStream: ReadableStream<Uint8Array> =
+      opts.idleTimeoutMs && opts.idleTimeoutMs > 0 && opts.onStdout
+        ? wrapWithIdleTimeout(proc.stdout!, opts.idleTimeoutMs, () => {
+            process.stderr.write(
+              `dispatch: no output from subprocess for ${opts.idleTimeoutMs}ms — killing\n`,
+            )
+            timedOut = true
+            idleTimedOut = true
+            proc.kill('SIGTERM')
+            setTimeout(() => proc.kill('SIGKILL'), 2_000).unref()
+          })
+        : proc.stdout!
+
+    const stdoutPromise = opts.onStdout
+      ? opts.onStdout(stdoutStream).catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err)
+          process.stderr.write(`dispatch: event stream error: ${msg}\n`)
         })
-      : proc.stdout!
+      : Promise.resolve()
+    const [exitCode] = await Promise.all([proc.exited, stdoutPromise])
 
-  const stdoutPromise = opts.onStdout
-    ? opts.onStdout(stdoutStream).catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err)
-        process.stderr.write(`dispatch: event stream error: ${msg}\n`)
-      })
-    : Promise.resolve()
-  const [exitCode] = await Promise.all([proc.exited, stdoutPromise])
-
-  return { exitCode: timedOut ? 124 : exitCode, timedOut, idleTimedOut }
+    return { exitCode: timedOut ? 124 : exitCode, timedOut, idleTimedOut }
+  } finally {
+    for (const cleanup of cleanups) cleanup()
+  }
 }
 
 function forwardSignal(
   proc: { kill: (sig: NodeJS.Signals | number) => void },
   signal: NodeJS.Signals,
-) {
+): () => void {
   const handler = () => proc.kill(signal)
   process.on(signal, handler)
+  return () => {
+    process.off(signal, handler)
+  }
 }
