@@ -59,7 +59,7 @@ filtered event view defined by FM-008.
   - `-C, --cwd <dir>` — working directory for the subprocess.
   - `--timeout <ms>` — kill the subprocess if it exceeds this duration.
   - `--idle-timeout <ms>` — kill the subprocess if it produces no stdout output
-    for this long. Default: 120,000ms. Pass `0` to disable entirely.
+    for this long. Default: 300,000ms. Pass `0` to disable entirely.
 - There is **no** `-o/--output` flag. Backend output is always the structured
   event stream; the user-facing rendering is fixed (see FM-008).
 - Prompt resolution order: positional arg → stdin → error (exit 2).
@@ -509,7 +509,7 @@ check-only mode for scripts/CI and a version pin for rollback.
 
 **Priority:** P1
 **Dependencies:** FM-002
-**Description:** Apply a 2-minute idle-stream timeout by default (no user flag
+**Description:** Apply a 5-minute idle-stream timeout by default (no user flag
 required), and automatically retry the entire invocation — up to 3 times — when
 the timeout fires with zero subprocess output. Designed to recover silently from
 transient server-side stream stalls (e.g. `gpt-5.5` WebSocket freezing mid-turn
@@ -517,10 +517,13 @@ with `reasoning_effort: xhigh`) without user intervention.
 
 **Constraints:**
 
-- Default idle timeout is **120,000ms** (2 minutes). Applied to every
+- Default idle timeout is **300,000ms** (5 minutes). Applied to every
   `dispatch exec` invocation unless the user passes `--idle-timeout`.
 - `--idle-timeout <ms>` overrides the default (any positive integer).
   `--idle-timeout 0` disables the mechanism entirely — no idle kill, no retries.
+- Before each retry, dispatch sleeps 60,000ms (60 seconds). This decouples
+  retries from backend stalls so the same upstream issue is not re-triggered
+  immediately.
 - **"No output" condition for retry:** a timeout fires a retry only if the
   subprocess wrote **zero bytes** to stdout before the idle timer expired. If
   any bytes were received (even a single unparseable chunk), the run is treated
@@ -528,7 +531,7 @@ with `reasoning_effort: xhigh`) without user intervention.
   message.
 - Maximum **3 retries** after the first attempt = 4 total attempts.
 - Before each retry, dispatch writes to stderr:
-  `dispatch: idle timeout (<N>ms, no output) — retrying [attempt X/4]`
+  `dispatch: idle timeout (<N>ms, no output) — retrying in 60s [attempt X/4]`
 - After all 4 attempts exhaust with no output:
   `dispatch: idle timeout after 4 attempts — giving up` → exit 124.
 - The retry loop re-spawns the subprocess with identical arguments (same prompt,
@@ -544,7 +547,7 @@ with `reasoning_effort: xhigh`) without user intervention.
 **Acceptance Criteria:**
 
 - `dispatch exec -a codex "prompt"` (no `--idle-timeout`) behaves identically
-  to `dispatch exec -a codex --idle-timeout 120000 "prompt"`.
+  to `dispatch exec -a codex --idle-timeout 300000 "prompt"`.
 - `dispatch exec -a codex --idle-timeout 0 "prompt"` runs with no idle timer
   and no retry loop.
 - A subprocess that hangs immediately (zero stdout bytes) is killed after the
@@ -553,6 +556,8 @@ with `reasoning_effort: xhigh`) without user intervention.
   and the exit code is 124.
 - Retry stderr lines include the correct attempt counter:
   `[attempt 2/4]`, `[attempt 3/4]`, `[attempt 4/4]`.
+- Between two failed attempts that both timed out with zero output, dispatch
+  waits ≥ 60 seconds before re-spawning the subprocess.
 - A subprocess that emits at least one stdout byte then stalls is killed after
   the idle timeout but is **not** retried; dispatch exits 124 with the standard
   `dispatch: no output from subprocess for Nms — killing` message and no retry
@@ -608,6 +613,19 @@ with `reasoning_effort: xhigh`) without user intervention.
   signatures.
 
 ## Changelog
+
+### Round 9 — 2026-05-23
+
+- FM-014 tuned: idle-timeout default raised from 120,000ms (2 min) to
+  300,000ms (5 min) to better tolerate slow but progressing backend turns.
+  Retry loop now sleeps 60,000ms (1 min) between attempts to decouple
+  retries from the upstream stall that triggered them. Retry stderr line
+  clarifies the wait:
+  `dispatch: idle timeout (Nms, no output) — retrying in 60s [attempt X/4]`.
+- Internal: `forwardSignal` in `src/lib/spawn.ts` now returns a cleanup
+  function, and `runStreaming` invokes it in a `finally` block. Restores
+  Node default Ctrl-C-exits behavior in the new inter-retry sleep window;
+  also fixes a latent SIGINT/SIGTERM listener accumulation across retries.
 
 ### Round 8 — 2026-05-21
 
