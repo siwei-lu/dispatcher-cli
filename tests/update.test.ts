@@ -225,7 +225,7 @@ describe('runUpdate', () => {
     })
 
     expect(code).toBe(1)
-    expect(stdout.join('')).toContain(
+    expect(stderr.join('')).toContain(
       'dispatch: update: GitHub API rate limit exceeded. ' +
         `Try again after ${new Date(Number(reset) * 1000).toUTCString()}.`,
     )

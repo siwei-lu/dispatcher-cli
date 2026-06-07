@@ -18,6 +18,11 @@ interface SettingsJson {
   [key: string]: unknown
 }
 
+type SettingsSubcommand = 'install' | 'uninstall'
+type SettingsReadResult =
+  | { ok: true; settings: SettingsJson | null }
+  | { ok: false }
+
 const OUR_COMMAND = 'dispatch hook bash-pre'
 const OUR_ENTRY: HookEntry = { type: 'command', command: OUR_COMMAND }
 
@@ -37,14 +42,61 @@ function isInsideGitRepo(cwd: string): boolean {
   return result.exitCode === 0
 }
 
-function readSettings(filePath: string): SettingsJson | null {
+function readSettings(filePath: string): SettingsReadResult {
   let raw: string
   try {
     raw = readFileSync(filePath, 'utf8')
   } catch {
-    return null
+    return { ok: true, settings: null }
   }
-  return JSON.parse(raw) as SettingsJson
+
+  try {
+    return { ok: true, settings: JSON.parse(raw) as SettingsJson }
+  } catch {
+    return { ok: false }
+  }
+}
+
+function invalidSettingsMessage(
+  subcmd: SettingsSubcommand,
+  settingsPath: string,
+): string {
+  return `dispatch: ${subcmd}: ${settingsPath} contains invalid JSON — fix it manually\n`
+}
+
+function validateSettingsShape(
+  settings: SettingsJson,
+  subcmd: SettingsSubcommand,
+  settingsPath: string,
+): string | null {
+  const message = invalidSettingsMessage(subcmd, settingsPath)
+
+  if (
+    typeof settings !== 'object' ||
+    settings === null ||
+    Array.isArray(settings)
+  ) {
+    return message
+  }
+
+  if (
+    'hooks' in settings &&
+    (typeof settings.hooks !== 'object' ||
+      settings.hooks === null ||
+      Array.isArray(settings.hooks))
+  ) {
+    return message
+  }
+
+  if (
+    settings.hooks &&
+    'PreToolUse' in settings.hooks &&
+    !Array.isArray(settings.hooks.PreToolUse)
+  ) {
+    return message
+  }
+
+  return null
 }
 
 async function writeSettings(
@@ -77,50 +129,16 @@ export async function runInstall(scope: 'global' | 'project'): Promise<number> {
     return 2
   }
 
-  let settings: SettingsJson
-  try {
-    settings = readSettings(settingsPath) ?? {}
-  } catch {
-    process.stderr.write(
-      `dispatch: install: ${settingsPath} contains invalid JSON — fix it manually\n`,
-    )
+  const readResult = readSettings(settingsPath)
+  if (!readResult.ok) {
+    process.stderr.write(invalidSettingsMessage('install', settingsPath))
     return 1
   }
+  const settings = readResult.settings ?? {}
 
-  // Shape guard — JSON was parseable but may not be a plain object
-  if (
-    typeof settings !== 'object' ||
-    settings === null ||
-    Array.isArray(settings)
-  ) {
-    process.stderr.write(
-      `dispatch: install: ${settingsPath} contains invalid JSON — fix it manually\n`,
-    )
-    return 1
-  }
-
-  // Guard hooks field if present
-  if (
-    'hooks' in settings &&
-    (typeof settings.hooks !== 'object' ||
-      settings.hooks === null ||
-      Array.isArray(settings.hooks))
-  ) {
-    process.stderr.write(
-      `dispatch: install: ${settingsPath} contains invalid JSON — fix it manually\n`,
-    )
-    return 1
-  }
-
-  // Guard PreToolUse if present
-  if (
-    settings.hooks &&
-    'PreToolUse' in settings.hooks &&
-    !Array.isArray(settings.hooks.PreToolUse)
-  ) {
-    process.stderr.write(
-      `dispatch: install: ${settingsPath} contains invalid JSON — fix it manually\n`,
-    )
+  const shapeError = validateSettingsShape(settings, 'install', settingsPath)
+  if (shapeError) {
+    process.stderr.write(shapeError)
     return 1
   }
 
@@ -169,15 +187,12 @@ export async function runUninstall(
     return 2
   }
 
-  let settings: SettingsJson | null
-  try {
-    settings = readSettings(settingsPath)
-  } catch {
-    process.stderr.write(
-      `dispatch: uninstall: ${settingsPath} contains invalid JSON — fix it manually\n`,
-    )
+  const readResult = readSettings(settingsPath)
+  if (!readResult.ok) {
+    process.stderr.write(invalidSettingsMessage('uninstall', settingsPath))
     return 1
   }
+  const settings = readResult.settings
 
   if (!settings) {
     process.stdout.write(
@@ -186,40 +201,9 @@ export async function runUninstall(
     return 0
   }
 
-  // Shape guard — JSON was parseable but may not be a plain object
-  if (
-    typeof settings !== 'object' ||
-    settings === null ||
-    Array.isArray(settings)
-  ) {
-    process.stderr.write(
-      `dispatch: uninstall: ${settingsPath} contains invalid JSON — fix it manually\n`,
-    )
-    return 1
-  }
-
-  // Guard hooks field if present
-  if (
-    'hooks' in settings &&
-    (typeof settings.hooks !== 'object' ||
-      settings.hooks === null ||
-      Array.isArray(settings.hooks))
-  ) {
-    process.stderr.write(
-      `dispatch: uninstall: ${settingsPath} contains invalid JSON — fix it manually\n`,
-    )
-    return 1
-  }
-
-  // Guard PreToolUse if present
-  if (
-    settings.hooks &&
-    'PreToolUse' in settings.hooks &&
-    !Array.isArray(settings.hooks.PreToolUse)
-  ) {
-    process.stderr.write(
-      `dispatch: uninstall: ${settingsPath} contains invalid JSON — fix it manually\n`,
-    )
+  const shapeError = validateSettingsShape(settings, 'uninstall', settingsPath)
+  if (shapeError) {
+    process.stderr.write(shapeError)
     return 1
   }
 

@@ -1,10 +1,5 @@
 import { adapterNames } from '../adapters/registry.ts'
 
-export interface ResolvedDefaults {
-  agent: string
-  model: string | undefined
-}
-
 export function defaultAgent(): string {
   const env = process.env.DISPATCH_AGENT?.toLowerCase()
   if (env && adapterNames.includes(env)) return env

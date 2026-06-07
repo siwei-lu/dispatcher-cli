@@ -42,6 +42,8 @@ const ASSET_MAP: Record<
 }
 
 function compareSemver(a: string, b: string): -1 | 0 | 1 {
+  // Release resolution decides whether prerelease tags are eligible; this
+  // comparison intentionally treats v1.0.0-beta.1 as the same core version as v1.0.0.
   const parse = (v: string) =>
     v.replace(/^v/, '').split('-')[0]!.split('.').map(Number)
   const [aMaj = 0, aMin = 0, aPat = 0] = parse(a)
@@ -140,7 +142,7 @@ async function fetchGitHubJson(
   ) {
     const reset = response.headers.get('X-RateLimit-Reset')
     const date = new Date(Number(reset) * 1000).toUTCString()
-    process.stdout.write(
+    process.stderr.write(
       'dispatch: update: GitHub API rate limit exceeded. ' +
         `Try again after ${date}.\n`,
     )

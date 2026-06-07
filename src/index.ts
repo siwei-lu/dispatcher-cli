@@ -3,21 +3,11 @@ import cac from 'cac'
 
 import pkg from '../package.json' with { type: 'json' }
 import { runExec } from './commands/exec.ts'
+import type { ExecArgs } from './commands/exec.ts'
 import { runHook } from './commands/hook.ts'
 import { runInstall, runUninstall } from './commands/install.ts'
 import { runList } from './commands/list.ts'
 import { runUpdate } from './commands/update.ts'
-
-interface ExecOpts {
-  agent?: string
-  model?: string
-  cwd?: string
-  promptFile?: string
-  idleTimeout?: number
-  logFile?: string
-  output?: string
-  progressFormat?: string
-}
 
 function splitPassthrough(argv: string[]): {
   cliArgs: string[]
@@ -66,22 +56,28 @@ async function main(): Promise<number> {
     .example('dispatch exec -a claude "explain this repo"')
     .example('echo "summarize README" | dispatch exec -a codex')
     .example('dispatch exec -a claude -- --verbose "debug me"')
-    .action(async (promptParts: string[], opts: ExecOpts) => {
-      const prompt = promptParts.length > 0 ? promptParts.join(' ') : undefined
-      const exitCode = await runExec({
-        prompt,
-        promptFile: opts.promptFile,
-        agent: opts.agent,
-        model: opts.model,
-        cwd: opts.cwd,
-        idleTimeout: opts.idleTimeout,
-        passthrough,
-        logFile: opts.logFile,
-        output: opts.output,
-        progressFormat: opts.progressFormat,
-      })
-      process.exit(exitCode)
-    })
+    .action(
+      async (
+        promptParts: string[],
+        opts: Partial<Omit<ExecArgs, 'prompt' | 'passthrough'>>,
+      ) => {
+        const prompt =
+          promptParts.length > 0 ? promptParts.join(' ') : undefined
+        const exitCode = await runExec({
+          prompt,
+          promptFile: opts.promptFile,
+          agent: opts.agent,
+          model: opts.model,
+          cwd: opts.cwd,
+          idleTimeout: opts.idleTimeout,
+          passthrough,
+          logFile: opts.logFile,
+          output: opts.output,
+          progressFormat: opts.progressFormat,
+        })
+        process.exit(exitCode)
+      },
+    )
 
   cli
     .command('list', 'Show available agent backends and their status')
