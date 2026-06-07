@@ -10,6 +10,7 @@ import { readStdin } from '../lib/stdin.ts'
 
 export interface ExecArgs {
   prompt?: string
+  promptFile?: string
   agent?: string
   model?: string
   cwd?: string
@@ -34,6 +35,15 @@ export async function runExec(args: ExecArgs): Promise<number> {
       )
       return 1
     }
+  }
+
+  const resolvedPromptFile =
+    args.promptFile !== undefined ? resolve(args.promptFile) : undefined
+  if (resolvedPromptFile !== undefined && !existsSync(resolvedPromptFile)) {
+    process.stderr.write(
+      `dispatch: --prompt-file: file does not exist: ${resolvedPromptFile}\n`,
+    )
+    return 1
   }
 
   // progress-format validation
@@ -63,7 +73,20 @@ export async function runExec(args: ExecArgs): Promise<number> {
     return 2
   }
 
-  const prompt = args.prompt ?? (await readStdin()).trim()
+  let prompt: string
+  if (resolvedPromptFile !== undefined) {
+    try {
+      prompt = await Bun.file(resolvedPromptFile).text()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      process.stderr.write(
+        `dispatch: --prompt-file: failed to read ${resolvedPromptFile}: ${message}\n`,
+      )
+      return 1
+    }
+  } else {
+    prompt = args.prompt ?? (await readStdin()).trim()
+  }
   if (!prompt) {
     process.stderr.write(
       'dispatch: no prompt provided. Pass it as an argument or via stdin.\n',
@@ -87,6 +110,7 @@ export async function runExec(args: ExecArgs): Promise<number> {
 
   const built = adapter.build({
     prompt,
+    promptFile: resolvedPromptFile,
     model: args.model ?? defaultModel(),
     cwd: args.cwd,
     passthrough: args.passthrough,

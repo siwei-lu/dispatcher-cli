@@ -12,6 +12,7 @@ interface ExecOpts {
   agent?: string
   model?: string
   cwd?: string
+  promptFile?: string
   idleTimeout?: number
   logFile?: string
   output?: string
@@ -44,6 +45,7 @@ async function main(): Promise<number> {
     .option('-a, --agent <name>', 'Agent backend (claude|codex)')
     .option('-m, --model <model>', 'Model identifier passed to the backend')
     .option('-C, --cwd <dir>', 'Working directory for the spawned process')
+    .option('--prompt-file <path>', 'Read prompt from a file')
     .option(
       '--idle-timeout <ms>',
       'Kill backend if it produces no output for this long (useful for codex/gpt-5.5 stream stalls)',
@@ -52,11 +54,11 @@ async function main(): Promise<number> {
         type: Number,
       },
     )
+    .option('--log-file <path>', 'Write rendered progress to file')
     .option(
-      '--log-file <path>',
-      'Write rendered progress to file',
+      '--output <format>',
+      'Stdout format: result or json (default: result)',
     )
-    .option('--output <format>', 'Stdout format: result or json (default: result)')
     .option(
       '--progress-format <format>',
       'Emit raw DispatcherEvents as JSON lines to stderr (only: json)',
@@ -68,6 +70,7 @@ async function main(): Promise<number> {
       const prompt = promptParts.length > 0 ? promptParts.join(' ') : undefined
       const exitCode = await runExec({
         prompt,
+        promptFile: opts.promptFile,
         agent: opts.agent,
         model: opts.model,
         cwd: opts.cwd,

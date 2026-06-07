@@ -28,12 +28,16 @@ export const codexAdapter: Adapter = {
       args.push(...opts.passthrough)
     }
 
-    args.push(opts.prompt)
+    const stdinFile = opts.promptFile
+    if (!stdinFile) {
+      args.push(opts.prompt)
+    }
 
     return {
       command: this.binary,
       args,
       cwd: opts.cwd,
+      stdinFile,
     }
   },
 

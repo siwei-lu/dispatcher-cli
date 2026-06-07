@@ -1,5 +1,7 @@
 import type { BuiltCommand } from '../adapters/types.ts'
 
+type FileSink = ReturnType<ReturnType<typeof Bun.file>['writer']>
+
 export interface RunResult {
   exitCode: number
   timedOut: boolean
@@ -65,7 +67,7 @@ export async function runStreaming(
   const proc = Bun.spawn([resolved, ...built.args], {
     cwd: built.cwd ?? process.cwd(),
     // parallel background callers share one stdin FD — inheriting blocks second+ processes on EOF
-    stdin: 'ignore',
+    stdin: built.stdinFile ? 'pipe' : 'ignore',
     stdout: 'pipe',
     stderr: 'inherit',
     env: process.env,
@@ -73,6 +75,22 @@ export async function runStreaming(
 
   let timedOut = false
   let idleTimedOut = false
+  let stdinFailed = false
+
+  const stdinPromise = built.stdinFile
+    ? streamFileToStdin(
+        proc.stdin as FileSink | undefined,
+        built.stdinFile,
+      ).catch((err) => {
+        stdinFailed = true
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(
+          `dispatch: failed to stream stdin file '${built.stdinFile}': ${msg}\n`,
+        )
+        proc.kill('SIGTERM')
+        setTimeout(() => proc.kill('SIGKILL'), 2_000).unref()
+      })
+    : Promise.resolve()
 
   const cleanups = [
     forwardSignal(proc, 'SIGINT'),
@@ -99,11 +117,37 @@ export async function runStreaming(
           process.stderr.write(`dispatch: event stream error: ${msg}\n`)
         })
       : Promise.resolve()
-    const [exitCode] = await Promise.all([proc.exited, stdoutPromise])
+    const [exitCode] = await Promise.all([
+      proc.exited,
+      stdoutPromise,
+      stdinPromise,
+    ])
 
-    return { exitCode: timedOut ? 124 : exitCode, timedOut, idleTimedOut }
+    return {
+      exitCode: timedOut ? 124 : stdinFailed ? 1 : exitCode,
+      timedOut,
+      idleTimedOut,
+    }
   } finally {
     for (const cleanup of cleanups) cleanup()
+  }
+}
+
+async function streamFileToStdin(
+  stdin: FileSink | undefined,
+  path: string,
+): Promise<void> {
+  if (!stdin) {
+    throw new Error('subprocess stdin pipe is unavailable')
+  }
+
+  try {
+    for await (const chunk of Bun.file(path).stream()) {
+      stdin.write(chunk)
+      await stdin.flush()
+    }
+  } finally {
+    await stdin.end()
   }
 }
 

@@ -205,6 +205,22 @@ describe('codex adapter', () => {
     ])
   })
 
+  it('omits the positional prompt and sets stdinFile when promptFile is present', () => {
+    const built = codexAdapter.build({
+      prompt: 'large prompt from file',
+      promptFile: '/tmp/prompt.txt',
+      passthrough: [],
+    })
+    expect(built.args).toEqual([
+      'exec',
+      '--json',
+      '--ephemeral',
+      '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
+    ])
+    expect(built.stdinFile).toBe('/tmp/prompt.txt')
+  })
+
   it('supports model and cwd options', () => {
     expect(codexAdapter.supports('model')).toBe(true)
     expect(codexAdapter.supports('cwd')).toBe(true)

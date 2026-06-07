@@ -12,7 +12,14 @@ import { describe, expect, it } from 'bun:test'
 import { runExec } from '../src/commands/exec.ts'
 
 const fakeCodexScript = `#!/bin/sh
-cat >/dev/null
+if [ -n "$DISPATCH_FAKE_STDIN_FILE" ]; then
+  cat > "$DISPATCH_FAKE_STDIN_FILE"
+else
+  cat >/dev/null
+fi
+if [ -n "$DISPATCH_FAKE_ARGS_FILE" ]; then
+  printf '%s\\n' "$@" > "$DISPATCH_FAKE_ARGS_FILE"
+fi
 printf '%s\\n' \\
   '{"type":"thread.started","thread_id":"t1"}' \\
   '{"type":"item.started","item":{"id":"i0","type":"command_execution","command":"echo final"}}' \\
@@ -29,6 +36,30 @@ describe('runExec — --log-file parent-dir check', () => {
       logFile: '/nonexistent/dir/abc.log',
     })
     expect(code).toBe(1)
+  })
+})
+
+describe('runExec — --prompt-file validation', () => {
+  it('returns 1 when --prompt-file does not exist', async () => {
+    const captured = captureProcessWrites()
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-prompt-missing-'))
+    try {
+      const missingPath = join(tmpDir, 'missing-prompt.txt')
+      const code = await runExec({
+        promptFile: missingPath,
+        agent: 'codex',
+        passthrough: [],
+      })
+
+      expect(code).toBe(1)
+      expect(captured.stdout.join('')).toBe('')
+      expect(captured.stderr.join('')).toContain(
+        `dispatch: --prompt-file: file does not exist: ${missingPath}`,
+      )
+    } finally {
+      captured.restore()
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -143,6 +174,37 @@ describe('runExec — stdout/stderr routing', () => {
       })
       expect(result.stderr).not.toContain('[task]')
       expect(readFileSync(logFile, 'utf8')).toContain('[done] final answer')
+    })
+  })
+
+  it('sources the task prompt from --prompt-file and streams it to codex stdin', async () => {
+    await withFakeCodex(async (tmpDir) => {
+      const promptText = 'review this prompt from a file'
+      const promptFile = join(tmpDir, 'prompt.txt')
+      const stdinCapture = join(tmpDir, 'stdin.txt')
+      const argsCapture = join(tmpDir, 'args.txt')
+      writeFileSync(promptFile, promptText)
+
+      const result = await runDispatchExec(
+        ['-a', 'codex', '--prompt-file', promptFile],
+        tmpDir,
+        {
+          DISPATCH_FAKE_STDIN_FILE: stdinCapture,
+          DISPATCH_FAKE_ARGS_FILE: argsCapture,
+        },
+      )
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe('final answer')
+      expect(result.stderr).toContain(`[task] ${promptText}`)
+      expect(readFileSync(stdinCapture, 'utf8')).toBe(promptText)
+      expect(readFileSync(argsCapture, 'utf8').trim().split('\n')).toEqual([
+        'exec',
+        '--json',
+        '--ephemeral',
+        '--skip-git-repo-check',
+        '--dangerously-bypass-approvals-and-sandbox',
+      ])
     })
   })
 })

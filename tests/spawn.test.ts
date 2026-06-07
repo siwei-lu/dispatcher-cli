@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'bun:test'
 
@@ -91,4 +93,36 @@ describe('runStreaming — idleTimeoutMs', () => {
     expect(result.idleTimedOut).toBe(true)
     expect(result.timedOut).toBe(true)
   }, 5_000)
+})
+
+describe('runStreaming — stdinFile', () => {
+  it('streams stdinFile into the subprocess stdin pipe', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dispatch-spawn-'))
+    const promptFile = join(tmpDir, 'prompt.txt')
+    writeFileSync(promptFile, 'prompt from file\nsecond line')
+
+    try {
+      let stdout = ''
+      const result = await runStreaming(
+        {
+          command: 'bun',
+          args: [
+            '-e',
+            'for await (const chunk of Bun.stdin.stream()) process.stdout.write(chunk)',
+          ],
+          stdinFile: promptFile,
+        },
+        {
+          onStdout: async (stream) => {
+            stdout = await new Response(stream).text()
+          },
+        },
+      )
+
+      expect(result.exitCode).toBe(0)
+      expect(stdout).toBe('prompt from file\nsecond line')
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
 })

@@ -1,5 +1,6 @@
 export interface DispatchOptions {
   prompt: string
+  promptFile?: string
   model?: string
   cwd?: string
   passthrough: string[]
@@ -9,6 +10,7 @@ export interface BuiltCommand {
   command: string
   args: string[]
   cwd?: string
+  stdinFile?: string
 }
 
 export type DispatcherEvent =
