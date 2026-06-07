@@ -1,6 +1,6 @@
 {
   "name": "dispatcher-cli",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Call Codex from Claude Code without leaving your session, or Claude Code from Codex CLI",
   "type": "module",
   "bin": {
