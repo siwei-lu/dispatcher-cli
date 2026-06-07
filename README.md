@@ -158,7 +158,8 @@ Common exec options:
   -C, --cwd <dir>               Working directory for the spawned process
       --timeout <ms>            Abort backend if it exceeds this duration
       --idle-timeout <ms>       Kill backend if no output for this long (default: 300000)
-      --log-file <path>         Write rendered output to file; stdout becomes a JSON exit envelope
+      --log-file <path>         Write rendered progress to file
+      --output <fmt>            Stdout format: result or json (default: result)
       --progress-format <fmt>   Emit raw DispatcherEvents as JSON lines to stderr (only: json)
   --                            Forward everything after this verbatim to the backend
 ```
@@ -188,7 +189,8 @@ CLI flags override environment variables.
 
 ## Output
 
-`dispatch exec` streams progress as bracketed events:
+`dispatch exec` writes the final result text to stdout and streams progress as
+bracketed events on stderr:
 
 ```text
 [task] review this diff for regressions
@@ -197,11 +199,22 @@ CLI flags override environment variables.
 [done] The diff looks safe, but add a test for...
 ```
 
-Write the rendered stream to a file and return a compact JSON envelope on
-stdout:
+Write the rendered progress stream to a file:
 
 ```bash
 dispatch exec -a codex "review this diff" --log-file /tmp/dispatch.log
+```
+
+Return a compact JSON envelope on stdout:
+
+```bash
+dispatch exec -a codex "review this diff" --output json
+```
+
+Combine both to include the log path in that JSON envelope:
+
+```bash
+dispatch exec -a codex "review this diff" --log-file /tmp/dispatch.log --output json
 ```
 
 Emit raw machine-readable events:

@@ -16,8 +16,11 @@ export interface ExecArgs {
   idleTimeout?: number
   passthrough: string[]
   logFile?: string
+  output?: string
   progressFormat?: string
 }
+
+type OutputFormat = 'result' | 'json'
 
 export async function runExec(args: ExecArgs): Promise<number> {
   // Log-file parent-dir check FIRST — must precede resolveAdapter
@@ -40,6 +43,15 @@ export async function runExec(args: ExecArgs): Promise<number> {
     )
     return 2
   }
+
+  const rawOutputFormat = args.output ?? 'result'
+  if (rawOutputFormat !== 'result' && rawOutputFormat !== 'json') {
+    process.stderr.write(
+      `dispatch: --output: unknown format '${rawOutputFormat}'. Use: result, json\n`,
+    )
+    return 2
+  }
+  const outputFormat: OutputFormat = rawOutputFormat
 
   const agentName = args.agent ?? defaultAgent()
   let adapter
@@ -135,15 +147,24 @@ export async function runExec(args: ExecArgs): Promise<number> {
     logSink.end()
   }
 
-  if (resolvedLogFile !== undefined) {
-    process.stdout.write(
-      JSON.stringify({
-        status: exitCode === 0 ? 'ok' : 'error',
-        exitCode,
-        summary: capturedDone?.result ?? '',
-        log: resolvedLogFile,
-      }) + '\n',
-    )
+  const summary = capturedDone?.result ?? ''
+  if (outputFormat === 'json') {
+    const envelope: {
+      status: 'ok' | 'error'
+      exitCode: number
+      summary: string
+      log?: string
+    } = {
+      status: exitCode === 0 ? 'ok' : 'error',
+      exitCode,
+      summary,
+    }
+    if (resolvedLogFile !== undefined) {
+      envelope.log = resolvedLogFile
+    }
+    process.stdout.write(JSON.stringify(envelope) + '\n')
+  } else {
+    process.stdout.write(summary)
   }
 
   return exitCode

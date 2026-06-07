@@ -14,6 +14,7 @@ interface ExecOpts {
   cwd?: string
   idleTimeout?: number
   logFile?: string
+  output?: string
   progressFormat?: string
 }
 
@@ -53,8 +54,9 @@ async function main(): Promise<number> {
     )
     .option(
       '--log-file <path>',
-      'Write rendered output to file; stdout becomes a JSON exit envelope',
+      'Write rendered progress to file',
     )
+    .option('--output <format>', 'Stdout format: result or json (default: result)')
     .option(
       '--progress-format <format>',
       'Emit raw DispatcherEvents as JSON lines to stderr (only: json)',
@@ -72,6 +74,7 @@ async function main(): Promise<number> {
         idleTimeout: opts.idleTimeout,
         passthrough,
         logFile: opts.logFile,
+        output: opts.output,
         progressFormat: opts.progressFormat,
       })
       process.exit(exitCode)

@@ -90,6 +90,33 @@ describe('renderEventStream — claude transcript', () => {
   })
 })
 
+describe('renderEventStream — default writers', () => {
+  it('routes rendered progress to stderr when no writer is provided', async () => {
+    const jsonl = [
+      JSON.stringify({
+        type: 'system',
+        subtype: 'init',
+        model: 'claude-opus-4-7',
+      }),
+      JSON.stringify({
+        type: 'result',
+        result: 'ok',
+      }),
+    ].join('\n')
+
+    const captured = captureProcessWrites()
+    try {
+      await renderEventStream(makeStream(jsonl), claudeAdapter)
+
+      expect(captured.stdout.join('')).toBe('')
+      expect(captured.stderr.join('')).toContain('[start] claude')
+      expect(captured.stderr.join('')).toContain('[done] ok')
+    } finally {
+      captured.restore()
+    }
+  })
+})
+
 describe('renderEventStream — codex transcript', () => {
   it('merges two done events into exactly one [done] line', async () => {
     const jsonl = [
@@ -187,6 +214,18 @@ describe('emitTaskEvent', () => {
     const text = written[0]?.slice('[task] '.length).trimEnd()
     expect(text?.length).toBeLessThanOrEqual(120)
     expect(text?.endsWith('…')).toBe(true)
+  })
+
+  it('writes to stderr by default', () => {
+    const captured = captureProcessWrites()
+    try {
+      emitTaskEvent('explain this repo')
+
+      expect(captured.stdout.join('')).toBe('')
+      expect(captured.stderr.join('')).toMatch(/^\[task\] explain this repo/)
+    } finally {
+      captured.restore()
+    }
   })
 })
 
@@ -290,3 +329,39 @@ describe('renderEventStream — jsonWriter', () => {
     expect(jsonDoneIdx).toBeLessThan(renderDoneIdx)
   })
 })
+
+function captureProcessWrites(): {
+  stdout: string[]
+  stderr: string[]
+  restore: () => void
+} {
+  const stdout: string[] = []
+  const stderr: string[] = []
+  const originalStdoutWrite = process.stdout.write
+  const originalStderrWrite = process.stderr.write
+
+  process.stdout.write = captureWrite(stdout)
+  process.stderr.write = captureWrite(stderr) as typeof process.stderr.write
+
+  return {
+    stdout,
+    stderr,
+    restore() {
+      process.stdout.write = originalStdoutWrite
+      process.stderr.write = originalStderrWrite
+    },
+  }
+}
+
+function captureWrite(output: string[]): typeof process.stdout.write {
+  return ((chunk: string | Uint8Array, ...args: unknown[]) => {
+    output.push(
+      typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk),
+    )
+    const callback = args.find(
+      (arg): arg is (err?: Error) => void => typeof arg === 'function',
+    )
+    callback?.()
+    return true
+  }) as typeof process.stdout.write
+}

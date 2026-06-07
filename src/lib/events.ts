@@ -91,7 +91,7 @@ export async function renderEventStream(
   opts?: RenderOpts,
 ): Promise<PendingDone | null> {
   const writer: Writer =
-    opts?.writer ?? process.stdout.write.bind(process.stdout)
+    opts?.writer ?? process.stderr.write.bind(process.stderr)
   const errWriter: Writer =
     opts?.errWriter ?? process.stderr.write.bind(process.stderr)
 
@@ -182,6 +182,6 @@ export async function renderEventStream(
 }
 
 export function emitTaskEvent(prompt: string, writer?: Writer): void {
-  const out: Writer = writer ?? process.stdout.write.bind(process.stdout)
+  const out: Writer = writer ?? process.stderr.write.bind(process.stderr)
   out(`[task] ${truncate(prompt, 120)}\n`)
 }
