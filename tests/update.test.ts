@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test'
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { access, copyFile, rename, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -113,6 +113,121 @@ describe('runUpdate', () => {
     expect(readFileSync(binaryPath, 'utf8')).toBe('new binary')
     expect(stdout.join('')).toContain(
       'dispatch update: upgraded v1.0.0 → v1.1.0',
+    )
+  })
+
+  it('writes the downloaded binary to os.tmpdir before replacing the binary', async () => {
+    const { dir, binaryPath } = makeBinary()
+    const tempRoot = mkdtempSync(join(tmpdir(), 'dispatch-update-temp-'))
+    tempDirs.push(tempRoot)
+    const writtenPaths: string[] = []
+    const renamedPaths: string[] = []
+    stubUpdateFetch()
+
+    const code = await runUpdate({
+      check: false,
+      prerelease: false,
+      _realBinaryPath: binaryPath,
+      _localVersion: '1.0.0',
+      _platform: 'darwin',
+      _arch: 'arm64',
+      _installDeps: {
+        tmpdir: () => tempRoot,
+        write: ((filePath, data) => {
+          writtenPaths.push(String(filePath))
+          const writeFile = Bun.write as (
+            destination: string,
+            input: unknown,
+          ) => Promise<number>
+          return writeFile(String(filePath), data)
+        }) as typeof Bun.write,
+        rename: (async (from, to) => {
+          renamedPaths.push(String(from))
+          return rename(from, to)
+        }) as typeof rename,
+      },
+    })
+
+    expect(code).toBe(0)
+    expect(readFileSync(binaryPath, 'utf8')).toBe('new binary')
+    expect(writtenPaths).toHaveLength(1)
+    expect(writtenPaths[0]?.startsWith(tempRoot)).toBe(true)
+    expect(writtenPaths[0]?.startsWith(dir)).toBe(false)
+    expect(renamedPaths).toEqual(writtenPaths)
+    expect(readdirSync(dir).sort()).toEqual(['dispatch'])
+  })
+
+  it('copies and unlinks the temp file when rename crosses devices', async () => {
+    const { binaryPath } = makeBinary()
+    const tempRoot = mkdtempSync(join(tmpdir(), 'dispatch-update-temp-'))
+    tempDirs.push(tempRoot)
+    const copiedPaths: string[] = []
+    const unlinkedPaths: string[] = []
+    stubUpdateFetch()
+
+    const code = await runUpdate({
+      check: false,
+      prerelease: false,
+      _realBinaryPath: binaryPath,
+      _localVersion: '1.0.0',
+      _platform: 'darwin',
+      _arch: 'arm64',
+      _installDeps: {
+        tmpdir: () => tempRoot,
+        rename: (async () => {
+          const err = new Error('cross-device link') as NodeJS.ErrnoException
+          err.code = 'EXDEV'
+          throw err
+        }) as typeof rename,
+        copyFile: (async (from, to) => {
+          copiedPaths.push(String(from))
+          return copyFile(from, to)
+        }) as typeof copyFile,
+        unlink: (async (filePath) => {
+          unlinkedPaths.push(String(filePath))
+          return unlink(filePath)
+        }) as typeof unlink,
+      },
+    })
+
+    expect(code).toBe(0)
+    expect(readFileSync(binaryPath, 'utf8')).toBe('new binary')
+    expect(copiedPaths).toHaveLength(1)
+    expect(copiedPaths[0]?.startsWith(tempRoot)).toBe(true)
+    expect(unlinkedPaths).toEqual(copiedPaths)
+    expect(readdirSync(tempRoot)).toEqual([])
+  })
+
+  it('checks binary directory writability before downloading the asset', async () => {
+    const { dir, binaryPath } = makeBinary()
+    const fetchMock = stubFetch((url) => {
+      if (url.startsWith('https://api.github.com/')) {
+        return new Response(JSON.stringify(makeRelease('v1.1.0')))
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    const code = await runUpdate({
+      check: false,
+      prerelease: false,
+      _realBinaryPath: binaryPath,
+      _localVersion: '1.0.0',
+      _platform: 'darwin',
+      _arch: 'arm64',
+      _installDeps: {
+        access: (async () => {
+          const err = new Error('permission denied') as NodeJS.ErrnoException
+          err.code = 'EACCES'
+          throw err
+        }) as typeof access,
+      },
+    })
+
+    expect(code).toBe(1)
+    expect(fetchMock.mock.calls.length).toBe(1)
+    expect(readFileSync(binaryPath, 'utf8')).toBe('old binary')
+    expect(stderr.join('')).toContain(
+      `dispatch: update: cannot write to ${dir}: permission denied.`,
     )
   })
 
@@ -258,5 +373,17 @@ describe('runUpdate', () => {
     )
     globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch
     return fetchMock
+  }
+
+  function stubUpdateFetch(): ReturnType<typeof mock> {
+    return stubFetch((url) => {
+      if (url.startsWith('https://api.github.com/')) {
+        return new Response(JSON.stringify(makeRelease('v1.1.0')))
+      }
+      if (url === 'https://example.com/dispatch-darwin-arm64') {
+        return new Response('new binary')
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
   }
 })

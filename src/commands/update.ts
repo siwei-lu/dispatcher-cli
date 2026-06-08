@@ -1,4 +1,13 @@
-import { realpath, chmod, rename, unlink } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import {
+  realpath,
+  chmod,
+  rename,
+  unlink,
+  access,
+  copyFile,
+} from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 
 import pkg from '../../package.json' with { type: 'json' }
@@ -12,6 +21,7 @@ interface UpdateOpts {
   _platform?: string
   _arch?: string
   _localVersion?: string
+  _installDeps?: Partial<InstallDeps>
 }
 
 interface ReleaseAsset {
@@ -27,6 +37,17 @@ interface Release {
 }
 
 type JsonResult = { ok: true; json: unknown } | { ok: false }
+
+interface InstallDeps {
+  fetch: typeof fetch
+  write: typeof Bun.write
+  chmod: typeof chmod
+  rename: typeof rename
+  unlink: typeof unlink
+  access: typeof access
+  copyFile: typeof copyFile
+  tmpdir: typeof tmpdir
+}
 
 const GITHUB_HEADERS = {
   'User-Agent': `dispatch-cli/${pkg.version}`,
@@ -203,15 +224,32 @@ async function resolveRelease(opts: UpdateOpts): Promise<Release | null> {
 async function installBinary(
   downloadUrl: string,
   realPath: string,
+  depsOverride: Partial<InstallDeps> = {},
 ): Promise<boolean> {
+  const deps: InstallDeps = {
+    fetch,
+    write: Bun.write,
+    chmod,
+    rename,
+    unlink,
+    access,
+    copyFile,
+    tmpdir,
+    ...depsOverride,
+  }
   const dir = path.dirname(realPath)
   const base = path.basename(realPath)
-  const tempPath = path.join(dir, '.' + base + '.update-' + process.pid)
+  const tempPath = path.join(
+    deps.tmpdir(),
+    `${base}.update-${process.pid}-${Date.now()}`,
+  )
 
   let tempCreated = false
-  let renamed = false
+  let installed = false
   try {
-    const resp = await fetch(downloadUrl, { headers: GITHUB_HEADERS })
+    await deps.access(dir, fsConstants.W_OK)
+
+    const resp = await deps.fetch(downloadUrl, { headers: GITHUB_HEADERS })
     if (!resp.ok) {
       const message = await readResponseMessage(resp)
       process.stderr.write(
@@ -219,16 +257,24 @@ async function installBinary(
       )
       return false
     }
+    await deps.write(tempPath, await resp.bytes())
     tempCreated = true
-    await Bun.write(tempPath, await resp.bytes())
-    await chmod(tempPath, 0o755)
-    await rename(tempPath, realPath)
-    renamed = true
+    await deps.chmod(tempPath, 0o755)
+    try {
+      await deps.rename(tempPath, realPath)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code !== 'EXDEV') throw err
+      await deps.copyFile(tempPath, realPath)
+      await deps.chmod(realPath, 0o755)
+      await deps.unlink(tempPath)
+    }
+    installed = true
     return true
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'EACCES' || code === 'EPERM') {
-      const failedPath = tempCreated ? tempPath : realPath
+      const failedPath = tempCreated ? realPath : dir
       process.stderr.write(
         `dispatch: update: cannot write to ${failedPath}: permission denied. ` +
           "Try 'sudo dispatch update' or re-link the binary into a writable directory.\n",
@@ -238,8 +284,8 @@ async function installBinary(
     }
     return false
   } finally {
-    if (tempCreated && !renamed) {
-      await unlink(tempPath).catch(() => {})
+    if (tempCreated && !installed) {
+      await deps.unlink(tempPath).catch(() => {})
     }
   }
 }
@@ -319,7 +365,11 @@ export async function runUpdate(opts: UpdateOpts): Promise<number> {
     return 1
   }
 
-  const installed = await installBinary(downloadUrl, realPath)
+  const installed = await installBinary(
+    downloadUrl,
+    realPath,
+    opts._installDeps,
+  )
   if (!installed) return 1
 
   if (opts.version) {
